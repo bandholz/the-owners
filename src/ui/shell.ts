@@ -114,41 +114,7 @@ a { color: inherit; }
   border: 0;
 }
 .brand-sub { color: var(--sidebar-muted); font-size: 12px; margin-top: 2px; }
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 2px 6px 12px;
-  background: #2a2a2a;
-  border-radius: 8px;
-  padding: 7px 10px;
-  border: 1px solid transparent;
-}
-.search:focus-within { border-color: rgba(122, 162, 255, 0.85); }
-.search input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: 0;
-  outline: none;
-  color: #fff;
-  padding: 0;
-}
-.search input::placeholder { color: #9a9a9a; }
-.search input::-webkit-search-cancel-button,
-.search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
-.search kbd {
-  font-family: inherit;
-  font-size: 11px;
-  color: #c8c8c8;
-  border: 1px solid #4a4a4a;
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  padding: 1px 5px;
-  background: #333;
-}
 .icon { width: 18px; height: 18px; flex: 0 0 auto; }
-.search-icon { width: 16px; height: 16px; color: #c8c8c8; }
 .nav { display: flex; flex-direction: column; gap: 2px; padding: 0 4px; }
 .nav-link {
   display: flex;
@@ -407,6 +373,75 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 .slot-time { font-weight: 600; }
+.heat-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+  font-weight: 700;
+  font-size: 14px;
+}
+.heat-scale {
+  width: 168px;
+  height: 16px;
+  border: 1px solid #1a1a1a;
+}
+.heat-wrap { position: relative; overflow-x: auto; padding-bottom: 4px; }
+.heat-table { border-collapse: collapse; width: 100%; }
+#heat-people { display: flex; flex-wrap: wrap; gap: 8px; }
+#heat-people .check-row { width: auto; flex: 1 1 220px; margin: 0; }
+.heat-day {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 4px 6px;
+  vertical-align: bottom;
+  line-height: 1.2;
+}
+.heat-day small { display: block; font-size: 12px; font-weight: 600; }
+.heat-time {
+  width: 76px;
+  text-align: right;
+  padding: 0 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: top;
+  color: #1a1a1a;
+}
+.heat-cell {
+  display: block;
+  width: 100%;
+  min-width: 42px;
+  height: 18px;
+  border-right: 1px solid #1a1a1a;
+  border-bottom: 1px dotted #8a8a8a;
+  background: #fff;
+  padding: 0;
+}
+.heat-cell.hour { border-bottom-color: #1a1a1a; border-bottom-style: solid; }
+.heat-cell.edge-left { border-left: 1px solid #1a1a1a; }
+.heat-cell.edge-top { border-top: 1px solid #1a1a1a; }
+.heat-cell:hover, .heat-cell:focus { outline: 2px solid #1a1a1a; outline-offset: -2px; }
+.heat-hover {
+  position: absolute;
+  z-index: 4;
+  background: #fff;
+  color: #1a1a1a;
+  border: 1px solid #1a1a1a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 200px;
+  max-width: 280px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+.heat-hover h3 { margin: 0 0 6px; font-size: 13px; }
+.heat-hover p { margin: 8px 0 2px; font-size: 12px; font-weight: 700; }
+.heat-hover .is-free { color: #0b7a32; }
+.heat-hover .is-busy { color: #616161; }
+.heat-hover ul { margin: 0; padding-left: 16px; font-size: 13px; }
 .public-body { min-height: 100vh; }
 .public-wrap {
   max-width: 520px;
@@ -436,9 +471,6 @@ function icon(body: string): string {
 }
 
 const ICONS = {
-  search: icon(
-    `<circle cx="8.2" cy="8.2" r="4.4"/><path d="M11.6 11.6 16 16"/>`,
-  ).replace('class="icon"', 'class="search-icon"'),
   home: icon(
     `<path d="M3.5 9.2 10 3.6l6.5 5.6V16.4a1 1 0 0 1-1 1H12v-4.2H8v4.2H4.5a1 1 0 0 1-1-1V9.2z"/>`,
   ),
@@ -556,11 +588,6 @@ function sidebar(viewer: Viewer, active: NavKey): string {
       : "";
   return `<aside class="sidebar">
     ${brand(viewer.appName)}
-    <label class="search">
-      ${ICONS.search}
-      <input id="nav-search" type="search" placeholder="Search" aria-label="Filter this page" autocomplete="off" />
-      <kbd>⌘K</kbd>
-    </label>
     <nav aria-label="Primary">
       ${navLink("/", "nav-home", "Home", ICONS.home, active === "home")}
       ${navLink("/app", "nav-times", "Available times", ICONS.times, active === "times")}
@@ -601,7 +628,6 @@ export function renderApp(opts: {
       ${sidebar(opts.viewer, opts.active)}
       <main class="main" id="main">
         <div class="main-inner">
-          <p id="filter-empty" class="hint" hidden>Nothing on this page matches.</p>
           ${metrics(opts.viewer)}
           ${opts.main}
         </div>

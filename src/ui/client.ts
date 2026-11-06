@@ -1,3 +1,4 @@
+import { HEAT_STOPS } from "../freebusy/heatmap";
 import { TIME_FNS } from "./time";
 
 /**
@@ -8,11 +9,11 @@ export function clientScript(): string {
   return `(() => {
 "use strict";
 ${TIME_FNS}
+const HEAT_STOPS = ${JSON.stringify(HEAT_STOPS)};
 const page = document.body.getAttribute("data-page") || "";
 const tz = document.body.getAttribute("data-tz") || "America/Chicago";
 const selfEmail = (document.body.getAttribute("data-email") || "").toLowerCase();
 let meCache = null;
-let filterQuery = "";
 
 function readJson(res) {
   return res.text().then((text) => {
@@ -98,24 +99,14 @@ function h(tag, props) {
   return node;
 }
 
-function mark(node, text) {
-  node.setAttribute("data-filter", text);
-  node.hidden = filterQuery.length > 0 && text.toLowerCase().indexOf(filterQuery) === -1;
-}
-
-function applyFilter() {
-  const nodes = document.querySelectorAll("main [data-filter]");
-  let total = 0;
-  let shown = 0;
-  nodes.forEach((node) => {
-    total += 1;
-    const hay = (node.getAttribute("data-filter") || "").toLowerCase();
-    const hide = filterQuery.length > 0 && hay.indexOf(filterQuery) === -1;
-    node.hidden = hide;
-    if (!hide) shown += 1;
-  });
-  const empty = document.getElementById("filter-empty");
-  if (empty) empty.hidden = !(filterQuery && total > 0 && shown === 0);
+function heatFill(freeCount, total) {
+  if (total <= 0 || freeCount <= 0) return HEAT_STOPS[0];
+  const t = freeCount / total;
+  const capped = t < 0 ? 0 : t > 1 ? 1 : t;
+  let idx = Math.round(capped * (HEAT_STOPS.length - 1));
+  if (idx < 1) idx = 1;
+  if (idx > HEAT_STOPS.length - 1) idx = HEAT_STOPS.length - 1;
+  return HEAT_STOPS[idx];
 }
 
 function pill(text, tone) {
@@ -182,22 +173,6 @@ function addDays(iso, n) {
   return y + "-" + mo + "-" + d;
 }
 
-function initSearch() {
-  const input = document.getElementById("nav-search");
-  if (!input) return;
-  input.addEventListener("input", () => {
-    filterQuery = input.value.trim().toLowerCase();
-    applyFilter();
-  });
-  document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
-      e.preventDefault();
-      input.focus();
-      input.select();
-    }
-  });
-}
-
 function initHome() {
   const btn = document.getElementById("delete-account");
   if (!btn) return;
@@ -223,6 +198,319 @@ function initHome() {
       setBanner(document.getElementById("delete-msg"), "bad", err.message || "Could not delete the account");
     });
   });
+}
+
+function initHeat() {
+  const root = document.getElementById("heat-app");
+  if (!root) return;
+  const peopleEl = document.getElementById("heat-people");
+  const groupEl = document.getElementById("heat-group");
+  const start = document.getElementById("heat-start");
+  const end = document.getElementById("heat-end");
+  const winStartEl = document.getElementById("heat-window-start");
+  const winEndEl = document.getElementById("heat-window-end");
+  const msg = document.getElementById("heat-msg");
+  const gridEl = document.getElementById("heat-grid");
+  const hover = document.getElementById("heat-hover");
+  const scale = document.getElementById("heat-scale");
+  const legendMin = document.getElementById("heat-legend-min");
+  const legendMax = document.getElementById("heat-legend-max");
+  if (scale) scale.style.background = "linear-gradient(90deg," + HEAT_STOPS.join(",") + ")";
+  const today = chicagoToday();
+  if (start && !start.value) start.value = today;
+  if (end && !end.value) end.value = addDays(today, 4);
+
+  let people = [];
+  let groups = [];
+  let heatTimer = null;
+  let heatAbort = null;
+
+  function memberSet() {
+    const group = groups.find((g) => g.id === groupEl.value);
+    const set = {};
+    const ids = group && Array.isArray(group.memberIds) ? group.memberIds : [];
+    ids.forEach((id) => {
+      set[id] = true;
+    });
+    return set;
+  }
+
+  function renderPeople() {
+    const previously = {};
+    peopleEl.querySelectorAll("input[type=checkbox]").forEach((box) => {
+      if (box.checked && !box.disabled) previously[box.getAttribute("data-user-id")] = true;
+    });
+    clear(peopleEl);
+    const members = memberSet();
+    if (!people.length) {
+      peopleEl.append(h("p", { class: "hint", text: "No one has been invited yet." }));
+      return;
+    }
+    people.forEach((person) => {
+      const connected = person.token_status === "ok";
+      const inGroup = !!members[person.id];
+      const box = h("input", { type: "checkbox" });
+      box.disabled = !connected || inGroup;
+      box.checked = inGroup || !!previously[person.id];
+      box.setAttribute("data-user-id", String(person.id));
+      box.addEventListener("change", scheduleHeat);
+      const display = person.name || person.email || "Person";
+      const bits = [];
+      if (person.name && person.email) bits.push(person.email);
+      bits.push(roleText(person.role));
+      if (inGroup) bits.push("Included with the group");
+      if (!connected) bits.push("Calendar not connected");
+      const copy = h("span", { class: "check-copy" });
+      copy.append(h("span", { class: "check-title", text: display }));
+      copy.append(h("span", { class: "sub", text: bits.filter(Boolean).join(" · ") }));
+      const label = h("label", { class: "check-row" + (connected ? "" : " is-disabled") });
+      label.append(box, copy, pill(statusText(person.token_status), statusTone(person.token_status)));
+      peopleEl.append(label);
+    });
+  }
+
+  function selectedIds() {
+    const members = memberSet();
+    const userIds = [];
+    peopleEl.querySelectorAll("input[type=checkbox]").forEach((box) => {
+      if (!box.checked || box.disabled) return;
+      const id = box.getAttribute("data-user-id");
+      if (id && !members[id]) userIds.push(id);
+    });
+    const groupId = groupEl.value || "";
+    const picked = people.filter((p) => members[p.id] || userIds.indexOf(p.id) !== -1);
+    return { groupId: groupId, userIds: userIds, picked: picked };
+  }
+
+  function setLegend(total) {
+    if (legendMin) legendMin.textContent = "0/" + total + " Available";
+    if (legendMax) legendMax.textContent = total + "/" + total + " Available";
+  }
+
+  function hideHover() {
+    if (!hover) return;
+    hover.hidden = true;
+    clear(hover);
+  }
+
+  function clockLabel(minutes) {
+    const h24 = Math.floor(minutes / 60) % 24;
+    const min = minutes % 60;
+    const suffix = h24 >= 12 ? "PM" : "AM";
+    let h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    const mm = min < 10 ? "0" + min : String(min);
+    return h12 + ":" + mm + " " + suffix;
+  }
+
+  function showHover(cell, anchor) {
+    clear(hover);
+    hover.hidden = false;
+    const when = [cell.weekday, cell.dayLabel, cell.label + "–" + cell.endLabel]
+      .filter(Boolean)
+      .join(" ");
+    hover.append(h("h3", { text: when }));
+    const free = [];
+    const busy = [];
+    (cell.people || []).forEach((person) => {
+      const label = person.name || person.email || "Person";
+      if (person.status === "free") free.push(label);
+      else busy.push(label);
+    });
+    function names(title, list, cls) {
+      hover.append(h("p", { class: cls, text: title }));
+      const ul = h("ul", {});
+      if (!list.length) ul.append(h("li", { text: "None" }));
+      list.forEach((name) => ul.append(h("li", { text: name })));
+      hover.append(ul);
+    }
+    names("Free", free, "is-free");
+    names("Busy", busy, "is-busy");
+    const host = document.getElementById("heat-wrap").getBoundingClientRect();
+    const rect = anchor.getBoundingClientRect();
+    const width = 230;
+    let left = rect.right - host.left + 8;
+    if (rect.right + width > host.right) left = rect.left - host.left - width - 8;
+    hover.style.left = Math.max(0, left) + "px";
+    hover.style.top = Math.max(0, rect.top - host.top) + "px";
+  }
+
+  function renderGrid(data) {
+    clear(gridEl);
+    hideHover();
+    const total = typeof data.total === "number" ? data.total : (data.people || []).length;
+    setLegend(total);
+    const days = Array.isArray(data.days) ? data.days : [];
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const cells = Array.isArray(data.cells) ? data.cells : [];
+    if (!days.length || !rows.length) {
+      gridEl.append(h("p", { class: "hint", text: "No times in that window." }));
+      return;
+    }
+    const byKey = {};
+    cells.forEach((cell) => {
+      byKey[cell.day + ":" + cell.minutes] = cell;
+    });
+    const table = h("table", { class: "heat-table" });
+    const headRow = h("tr", {});
+    headRow.append(h("th", {}));
+    days.forEach((day) => {
+      const th = h("th", { class: "heat-day" });
+      th.append(h("small", { text: day.label || day.date || "" }));
+      th.append(document.createTextNode(day.weekday || ""));
+      headRow.append(th);
+    });
+    const thead = h("thead", {});
+    thead.append(headRow);
+    const tbody = h("tbody", {});
+    rows.forEach((row, rowIndex) => {
+      const tr = h("tr", {});
+      tr.append(h("th", {
+        class: "heat-time",
+        text: row.minutes % 60 === 0 ? row.label : "",
+      }));
+      days.forEach((day, dayIndex) => {
+        const cell = byKey[day.date + ":" + row.minutes] || { people: [], freeCount: 0, label: row.label };
+        const button = h("button", { type: "button", class: "heat-cell" });
+        if (dayIndex === 0) button.classList.add("edge-left");
+        if (rowIndex === 0) button.classList.add("edge-top");
+        const next = rows[rowIndex + 1];
+        if (!next || next.minutes % 60 === 0) button.classList.add("hour");
+        button.style.background = heatFill(cell.freeCount || 0, total);
+        const enriched = {
+          label: cell.label || row.label,
+          endLabel: clockLabel(row.minutes + (data.slotMinutes || 15)),
+          dayLabel: day.label || "",
+          weekday: day.weekday || "",
+          people: cell.people || [],
+        };
+        const freeNames = [];
+        const busyNames = [];
+        enriched.people.forEach((person) => {
+          const name = person.name || person.email || "Person";
+          if (person.status === "free") freeNames.push(name);
+          else busyNames.push(name);
+        });
+        button.setAttribute(
+          "aria-label",
+          enriched.weekday + " " + enriched.dayLabel + " " + enriched.label +
+            ". Free: " + (freeNames.join(", ") || "no one") +
+            ". Busy: " + (busyNames.join(", ") || "no one"),
+        );
+        button.addEventListener("mouseenter", () => showHover(enriched, button));
+        button.addEventListener("focus", () => showHover(enriched, button));
+        button.addEventListener("mouseleave", hideHover);
+        button.addEventListener("blur", hideHover);
+        const td = h("td", {});
+        td.append(button);
+        tr.append(td);
+      });
+      tbody.append(tr);
+    });
+    table.append(thead, tbody);
+    gridEl.append(table);
+  }
+
+  function loadHeat() {
+    const sel = selectedIds();
+    setLegend(sel.picked.length);
+    if (!sel.groupId && sel.userIds.length === 0) {
+      clear(gridEl);
+      hideHover();
+      gridEl.append(h("p", { class: "hint", text: "Select people or a saved group." }));
+      setBanner(msg, "", "");
+      return;
+    }
+    const missing = sel.picked.filter((p) => p.token_status !== "ok");
+    if (missing.length) {
+      clear(gridEl);
+      hideHover();
+      setBanner(msg, "bad", "Calendar not connected for " + missing.map((p) => p.email).join(", ") + ".");
+      return;
+    }
+    const span = inclusiveDaySpan(start.value, end.value);
+    if (span == null) {
+      setBanner(msg, "bad", "Choose a start date on or before the end date.");
+      return;
+    }
+    if (span > 7) {
+      setBanner(msg, "bad", "Choose 7 days or fewer.");
+      return;
+    }
+    const winStart = parseTimeToMinutes(winStartEl.value);
+    const winEnd = parseTimeToMinutes(winEndEl.value);
+    if (winStart == null || winEnd == null || winEnd <= winStart) {
+      setBanner(msg, "bad", "The daily window needs an end time after the start.");
+      return;
+    }
+    if (winEnd - winStart > 14 * 60) {
+      setBanner(msg, "bad", "Choose a daily window of 14 hours or less.");
+      return;
+    }
+    let rangeStart = "";
+    let rangeEnd = "";
+    try {
+      rangeStart = zonedWallTimeToIso(start.value, 0, 0, tz);
+      rangeEnd = zonedWallTimeToIso(addDays(end.value, 1), 0, 0, tz);
+    } catch (err) {
+      setBanner(msg, "bad", "Those dates could not be read.");
+      return;
+    }
+    if (heatAbort) heatAbort.abort();
+    heatAbort = new AbortController();
+    const signal = heatAbort.signal;
+    setBanner(msg, "", "");
+    const payload = {
+      userIds: sel.userIds,
+      rangeStart: rangeStart,
+      rangeEnd: rangeEnd,
+      windowStartMinutes: winStart,
+      windowEndMinutes: winEnd,
+    };
+    if (sel.groupId) payload.groupId = sel.groupId;
+    loadMe(false).then((me) => fetch("/api/availability", {
+      method: "POST",
+      signal: signal,
+      headers: {
+        "content-type": "application/json",
+        "x-csrf-token": me.csrf,
+      },
+      body: JSON.stringify(payload),
+    }).then((res) => readJson(res).then((data) => {
+      if (signal.aborted) return;
+      if (!res.ok) throw new Error(data.error || "Could not load availability");
+      renderGrid(data);
+    }))).catch((err) => {
+      if (err && err.name === "AbortError") return;
+      if (signal.aborted) return;
+      setBanner(msg, "bad", (err && err.message) || "Could not load availability");
+    });
+  }
+
+  function scheduleHeat() {
+    clearTimeout(heatTimer);
+    heatTimer = setTimeout(loadHeat, 200);
+  }
+
+  [start, end, winStartEl, winEndEl, groupEl].forEach((el) => {
+    el.addEventListener("change", () => {
+      if (el === groupEl) renderPeople();
+      scheduleHeat();
+    });
+  });
+
+  Promise.all([getJson("/api/people"), getJson("/api/groups")])
+    .then((pair) => {
+      people = Array.isArray(pair[0].people) ? pair[0].people : [];
+      groups = Array.isArray(pair[1].groups) ? pair[1].groups : [];
+      groups.forEach((group) => {
+        groupEl.append(h("option", { value: group.id, text: group.name || "Group" }));
+      });
+      renderPeople();
+    })
+    .catch((err) => {
+      setBanner(msg, "bad", err.message || "Could not load people");
+    });
 }
 
 function initCalendars() {
@@ -270,7 +558,6 @@ function renderCalendars(body, msg, data) {
     copy.append(h("span", { class: "sub", text: id }));
     label.append(box, copy);
     if (isPrimary) label.append(pill("Primary", "ok"));
-    mark(label, summary + " " + id);
     list.append(label);
   });
   const save = h("button", { class: "btn btn-primary", type: "submit", text: "Save calendars" });
@@ -320,7 +607,6 @@ function renderCalendars(body, msg, data) {
         save.disabled = chosen().length === 0;
       });
   });
-  applyFilter();
 }
 
 function initTimes() {
@@ -384,10 +670,8 @@ function initTimes() {
       copy.append(h("span", { class: "sub", text: bits.filter(Boolean).join(" · ") }));
       const label = h("label", { class: "check-row" + (connected ? "" : " is-disabled") });
       label.append(box, copy, pill(statusText(person.token_status), statusTone(person.token_status)));
-      mark(label, [display, person.email || "", person.role || ""].join(" "));
       peopleEl.append(label);
     });
-    applyFilter();
   }
 
   function renderSlots(data) {
@@ -419,10 +703,8 @@ function initTimes() {
       const row = h("div", { class: "slot" });
       row.append(h("span", { class: "slot-time", text: time + " – " + endTime }));
       row.append(h("span", { class: "sub", text: tz }));
-      mark(row, day + " " + time + " " + endTime);
       if (group) group.append(row);
     });
-    applyFilter();
   }
 
   Promise.all([getJson("/api/people"), getJson("/api/groups")])
@@ -609,7 +891,6 @@ function initAdmin() {
       }
       actions.append(role, save, remove);
       row.append(copy, actions);
-      mark(row, (user.email || "") + " " + (user.role || ""));
       roster.append(row);
     });
   }
@@ -688,7 +969,6 @@ function initAdmin() {
           .catch((err) => setBanner(groupMsg, "bad", err.message || "Could not add member"));
       });
       card.append(nameForm, members, addForm);
-      mark(card, (group.name || "") + " " + ids.join(" "));
       groupList.append(card);
     });
   }
@@ -756,7 +1036,6 @@ function initAdmin() {
       } else {
         row.append(pill("In sync", "ok"));
       }
-      mark(row, String(email) + " " + title);
       col.append(row);
     });
     return col;
@@ -774,7 +1053,6 @@ function initAdmin() {
   function refreshGoogle() {
     return getJson("/api/admin/google-test-users").then((data) => {
       renderGoogle(data);
-      applyFilter();
     });
   }
 
@@ -853,8 +1131,8 @@ function initAdmin() {
   });
 }
 
-initSearch();
 if (page === "home" || page === "delete") initHome();
+if (page === "home") initHeat();
 if (page === "calendars") initCalendars();
 if (page === "times") initTimes();
 if (page === "admin") initAdmin();

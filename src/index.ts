@@ -1,4 +1,4 @@
-import type { BusyInterval, Env } from "./types";
+import type { BusyInterval, Env, UserRow } from "./types";
 import {
   buildGoogleAuthUrl,
   CALENDAR_SCOPES,
@@ -29,6 +29,7 @@ import {
 import { listGroupMemberIds } from "./db/groups";
 import { handleAdmin } from "./admin/routes";
 import { findSharedSlots } from "./freebusy/intersect";
+import { buildAvailabilityGrid, zoneDayKeys } from "./freebusy/heatmap";
 import { queryFreeBusy, refreshAccessToken } from "./calendar/freebusy-client";
 import {
   defaultCalendarSelection,
@@ -60,6 +61,34 @@ import {
   noticePage,
   toViewer,
 } from "./ui/pages";
+
+async function loadUserBusy(
+  env: Env,
+  user: UserRow,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Promise<BusyInterval[] | Response> {
+  const refresh = await loadRefreshToken(
+    env.DB,
+    user.id,
+    env.TOKEN_ENCRYPTION_KEY,
+  );
+  if (!refresh) return jsonError(400, `missing token: ${user.email}`);
+  const access = await refreshAccessToken(
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    refresh,
+  );
+  const cals = await getSelectedCalendars(env.DB, user.id);
+  const ids = cals.map((c) => c.calendar_id);
+  if (!ids.length) ids.push("primary");
+  return queryFreeBusy({
+    timeMin: rangeStart.toISOString(),
+    timeMax: rangeEnd.toISOString(),
+    calendarIds: ids,
+    accessToken: access,
+  });
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -456,26 +485,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
     const busyByUser: BusyInterval[][] = [];
     for (const u of selectedUsers) {
-      const refresh = await loadRefreshToken(
-        env.DB,
-        u.id,
-        env.TOKEN_ENCRYPTION_KEY,
-      );
-      if (!refresh) return jsonError(400, `missing token: ${u.email}`);
-      const access = await refreshAccessToken(
-        env.GOOGLE_CLIENT_ID,
-        env.GOOGLE_CLIENT_SECRET,
-        refresh,
-      );
-      const cals = await getSelectedCalendars(env.DB, u.id);
-      const ids = cals.map((c) => c.calendar_id);
-      if (!ids.length) ids.push("primary");
-      const busy = await queryFreeBusy({
-        timeMin: rangeStart.toISOString(),
-        timeMax: rangeEnd.toISOString(),
-        calendarIds: ids,
-        accessToken: access,
-      });
+      const busy = await loadUserBusy(env, u, rangeStart, rangeEnd);
+      if (busy instanceof Response) return busy;
       busyByUser.push(busy);
     }
 
@@ -508,6 +519,143 @@ async function handle(request: Request, env: Env): Promise<Response> {
         end: s.end.toISOString(),
         startCt: s.startCt,
         endCt: s.endCt,
+      })),
+    });
+  }
+
+  if (path === "/api/availability" && request.method === "POST") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    if (csrfErr) return csrfErr;
+
+    const can = assertCanFindSlots(authed.user);
+    if (!can.ok) return jsonError(403, can.error);
+
+    const body = (await request.json()) as {
+      userIds?: string[];
+      groupId?: string;
+      rangeStart?: string;
+      rangeEnd?: string;
+      windowStartMinutes?: number;
+      windowEndMinutes?: number;
+    };
+    if (!body.rangeStart || !body.rangeEnd) {
+      return jsonError(400, "range required");
+    }
+
+    let groupMemberIds: string[] = [];
+    if (body.groupId) {
+      groupMemberIds = await listGroupMemberIds(env.DB, body.groupId);
+    }
+    const selectedIds = mergeSelectedUserIds({
+      userIds: body.userIds,
+      groupId: body.groupId,
+      groupMemberIds,
+    });
+
+    const selectedUsers = [];
+    for (const uid of selectedIds) {
+      const u = await getUserById(env.DB, uid);
+      if (!u) return jsonError(400, `unknown user: ${uid}`);
+      selectedUsers.push(u);
+    }
+
+    const busyCheck = assertSelectedPeopleForBusy(selectedUsers);
+    if (!busyCheck.ok) return jsonError(400, busyCheck.error);
+    if (
+      authed.user.role === "guest" &&
+      selectedIds.includes(authed.user.id) &&
+      authed.user.token_status !== "ok"
+    ) {
+      return jsonError(
+        400,
+        "guests cannot include themselves in busy selection without a connected calendar",
+      );
+    }
+
+    const rangeStart = new Date(body.rangeStart);
+    const rangeEnd = new Date(body.rangeEnd);
+    if (!(rangeStart < rangeEnd)) return jsonError(400, "bad range");
+    const dayCount = zoneDayKeys(
+      rangeStart,
+      rangeEnd,
+      env.DEFAULT_TIMEZONE,
+    ).length;
+    if (dayCount > 7) return jsonError(400, "range max 7 days");
+
+    const windowStartMinutes = body.windowStartMinutes ?? 9 * 60;
+    const windowEndMinutes = body.windowEndMinutes ?? 17 * 60;
+    if (
+      !Number.isInteger(windowStartMinutes) ||
+      !Number.isInteger(windowEndMinutes) ||
+      windowStartMinutes < 0 ||
+      windowEndMinutes > 24 * 60 ||
+      windowEndMinutes <= windowStartMinutes ||
+      windowEndMinutes - windowStartMinutes > 14 * 60
+    ) {
+      return jsonError(400, "bad daily window");
+    }
+
+    const busyByPerson: BusyInterval[][] = [];
+    for (const u of selectedUsers) {
+      const busy = await loadUserBusy(env, u, rangeStart, rangeEnd);
+      if (busy instanceof Response) return busy;
+      busyByPerson.push(busy);
+    }
+
+    const grid = buildAvailabilityGrid({
+      people: selectedUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+      })),
+      busyByPerson,
+      rangeStart,
+      rangeEnd,
+      windowStartMinutes,
+      windowEndMinutes,
+      slotMinutes: 15,
+      timeZone: env.DEFAULT_TIMEZONE,
+    });
+
+    await writeAudit(env, {
+      actorUserId: authed.user.id,
+      action: "availability_grid",
+      meta: {
+        users: selectedIds.length,
+        days: grid.days.length,
+        groupId: body.groupId ?? null,
+        actorRole: authed.user.role,
+      },
+    });
+
+    return jsonOk({
+      timezone: grid.timeZone,
+      slotMinutes: grid.slotMinutes,
+      total: grid.total,
+      windowStartMinutes,
+      windowEndMinutes,
+      people: selectedUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+      })),
+      days: grid.days,
+      rows: grid.rows,
+      cells: grid.cells.map((cell) => ({
+        day: cell.day,
+        minutes: cell.minutes,
+        label: cell.label,
+        start: cell.start,
+        end: cell.end,
+        freeCount: cell.freeCount,
+        people: cell.people.map((p) => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          status: p.status,
+        })),
       })),
     });
   }

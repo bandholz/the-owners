@@ -91,6 +91,9 @@ async function html(path: string, row?: UserRow): Promise<string> {
   expect(text).not.toContain("Sidekick");
   expect(text).not.toContain("Shopify");
   expect(text).not.toContain("Beardbrand");
+  expect(text).not.toContain('id="nav-search"');
+  expect(text).not.toContain("⌘K");
+  expect(text.toLowerCase()).not.toContain("when2meet");
   return text;
 }
 
@@ -119,6 +122,13 @@ describe("staging screens", () => {
     expect(text).toMatch(/Good (morning|afternoon|evening), Host/);
     expect(text).toContain('aria-current="page"');
     expect(text).toContain("x-csrf-token");
+    expect(text).toContain('id="heat-app"');
+    expect(text).toContain('id="heat-group"');
+    expect(text).toContain('id="heat-people"');
+    expect(text).toContain("Hover a time to see who is free and who is busy.");
+    expect(text).toContain("0/0 Available");
+    expect(text).toContain("/api/availability");
+    expect(text).toContain("7 days");
   });
 
   it("escapes the signed-in email", async () => {
@@ -252,6 +262,27 @@ describe("staging screens", () => {
     expect(app.status).toBe(401);
     const admin = await worker.fetch(new Request(`${BASE}/admin`), env());
     expect(admin.status).toBe(401);
+    const grid = await worker.fetch(
+      new Request(`${BASE}/api/availability`, { method: "POST" }),
+      env(),
+    );
+    expect(grid.status).toBe(401);
+  });
+
+  it("requires a csrf token before building the availability grid", async () => {
+    const res = await worker.fetch(
+      new Request(`${BASE}/api/availability`, {
+        method: "POST",
+        headers: {
+          cookie: "ots_session=sess-1",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }),
+      authed(user()),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "csrf" });
   });
 });
 
@@ -260,6 +291,10 @@ describe("page script time helpers", () => {
     const script = clientScript();
     new Function(script);
     expect(script).toContain("x-csrf-token");
+    expect(script).toContain("/api/availability");
+    expect(script).toContain('names("Free"');
+    expect(script).toContain('names("Busy"');
+    expect(script).not.toContain("nav-search");
     expect(script).not.toMatch(/find a time/i);
     const api = new Function(
       `${TIME_FNS}; return { zonedWallTimeToIso, parseTimeToMinutes, inclusiveDaySpan };`,

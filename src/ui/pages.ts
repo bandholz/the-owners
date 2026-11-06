@@ -28,6 +28,21 @@ export function toViewer(env: ViewerSource, user: UserRow): Viewer {
   };
 }
 
+function windowOptions(selected: string): string {
+  let html = "";
+  for (let minutes = 6 * 60; minutes <= 21 * 60; minutes += 30) {
+    const h24 = Math.floor(minutes / 60);
+    const min = minutes % 60;
+    const value = `${String(h24).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+    const suffix = h24 >= 12 ? "PM" : "AM";
+    let h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    const label = `${h12}:${String(min).padStart(2, "0")} ${suffix}`;
+    html += `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`;
+  }
+  return html;
+}
+
 export function htmlPage(title: string, body: string, appName = "Operators: The Owners Scheduler"): Response {
   return renderPublic(title, body, appName);
 }
@@ -49,7 +64,7 @@ export function homePage(opts: {
         <h1>${escapeHtml(opts.appName)}</h1>
         <p class="lede">Invite-only. Sign in with the Google account an admin invited.</p>
       </header>
-      <section class="card" data-filter="sign in">
+      <section class="card">
         <h2>Sign in</h2>
         <p>Available times are shown in Central Time (America/Chicago).</p>
         <a class="btn btn-primary" href="/auth/google/start">Sign in with Google</a>
@@ -70,50 +85,52 @@ export function homePage(opts: {
   const hello = greetingFor(new Date(), viewer.timeZone);
   const heading = name ? `${hello}, ${name}` : hello;
 
-  const connectFirst = !viewer.isGuest && !viewer.calendarOk;
-  const chips = [
-    connectFirst
-      ? `<a class="btn btn-primary" href="/auth/google/calendar/start">Connect Google Calendar</a>`
-      : `<a class="btn btn-primary" href="/app">Available times</a>`,
-    connectFirst ? `<a class="btn" href="/app">Available times</a>` : "",
-    `<a class="btn" href="/calendars">Calendars</a>`,
-    viewer.role === "admin" ? `<a class="btn" href="/admin">Admin</a>` : "",
-  ]
-    .filter(Boolean)
-    .join("");
-
-  const calendarCard = viewer.isGuest
-    ? `<section class="card" data-filter="calendar guest">
-        <h2>Calendar</h2>
-        <p>Guests can use Available times without connecting a calendar. You only see free time for the people you select.</p>
-        <a class="btn" href="/app">Available times</a>
-      </section>`
+  const statusNote = viewer.isGuest
+    ? `<p class="banner" id="heat-guest">Guests can check availability without connecting a calendar. Select people who have connected.</p>`
     : viewer.calendarOk
-      ? `<section class="card" data-filter="calendar connected">
-          <h2>Calendar connected</h2>
-          <p>Primary is included until you choose a different set. Only calendar names and ids are stored.</p>
-          <a class="btn" href="/calendars">Review calendars</a>
-        </section>`
-      : `<section class="card" data-filter="calendar connect">
-          <h2>Connect a calendar</h2>
-          <p>Hosts, producers, and admins connect Google Calendar before their busy time can be included.</p>
-          <a class="btn btn-primary" href="/auth/google/calendar/start">Connect Google Calendar</a>
-        </section>`;
+      ? ""
+      : `<p class="banner banner-warn">Connect Google Calendar before your own time can be included. <a href="/auth/google/calendar/start">Connect Google Calendar</a></p>`;
 
-  const main = `<header class="hero">
+  const main = `<header class="page-head">
       <h1>${escapeHtml(heading)}</h1>
-      <p class="lede">See who is free and line up the next recording.</p>
+      <p class="lede">See who is free. Darker green means more of the selected people are available. Times are Central (${escapeHtml(viewer.timeZone)}).</p>
     </header>
-    <div class="chip-row">${chips}</div>
-    <div class="grid-2">
-      <section class="card" data-filter="available times people group">
-        <h2>Available times</h2>
-        <p>Pick people or a saved group. Open slots are listed in Central Time.</p>
-        <a class="btn" href="/app">Open available times</a>
-      </section>
-      ${calendarCard}
-    </div>
-    <section class="card card-quiet" data-filter="disconnect delete my data">
+    <section class="card" id="heat-app">
+      ${statusNote}
+      <form id="heat-form" class="form-grid">
+        <label class="field">Start date
+          <input id="heat-start" type="date" required />
+        </label>
+        <label class="field">End date
+          <input id="heat-end" type="date" required />
+        </label>
+        <label class="field">From
+          <select id="heat-window-start">${windowOptions("09:00")}</select>
+        </label>
+        <label class="field">Until
+          <select id="heat-window-end">${windowOptions("17:00")}</select>
+        </label>
+        <label class="field">Saved group
+          <select id="heat-group">
+            <option value="">No saved group</option>
+          </select>
+        </label>
+      </form>
+      <div id="heat-people" class="stack-sm"><p class="hint">Loading people…</p></div>
+      <div class="heat-legend">
+        <span id="heat-legend-min">0/0 Available</span>
+        <span id="heat-scale" class="heat-scale"></span>
+        <span id="heat-legend-max">0/0 Available</span>
+      </div>
+      <p class="hint">Hover a time to see who is free and who is busy. The range is at most 7 days.</p>
+      <div id="heat-msg" class="banner" hidden></div>
+      <div id="heat-wrap" class="heat-wrap">
+        <div id="heat-grid"><p class="hint">Select people or a saved group.</p></div>
+        <div id="heat-hover" class="heat-hover" hidden></div>
+      </div>
+      <p class="hint"><a href="/app">Open the available times list</a> for a single meeting length.</p>
+    </section>
+    <section class="card card-quiet">
       <h2>Disconnect and delete</h2>
       <p class="hint">Revokes calendar access and deletes your account, sessions, and saved calendar names.</p>
       <div id="delete-msg" class="banner" hidden></div>

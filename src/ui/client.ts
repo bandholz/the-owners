@@ -99,9 +99,10 @@ function h(tag, props) {
   return node;
 }
 
-function heatFill(freeCount, total) {
-  if (total <= 0 || freeCount <= 0) return HEAT_STOPS[0];
-  const t = freeCount / total;
+function heatFill(freeCount, sharedCount) {
+  if (sharedCount <= 0) return "";
+  if (freeCount <= 0) return HEAT_STOPS[0];
+  const t = freeCount / sharedCount;
   const capped = t < 0 ? 0 : t > 1 ? 1 : t;
   let idx = Math.round(capped * (HEAT_STOPS.length - 1));
   if (idx < 1) idx = 1;
@@ -456,9 +457,11 @@ function initHeat() {
     hover.append(h("h3", { text: when }));
     const free = [];
     const busy = [];
+    const unshared = [];
     (cell.people || []).forEach((person) => {
       const label = person.name || person.email || "Person";
-      if (person.status === "free") free.push(label);
+      if (person.status === "unshared") unshared.push(label);
+      else if (person.status === "free") free.push(label);
       else busy.push(label);
     });
     function names(title, list, cls) {
@@ -470,6 +473,7 @@ function initHeat() {
     }
     names("Free", free, "is-free");
     names("Busy", busy, "is-busy");
+    names("Not shared", unshared, "is-busy");
     hover.style.position = "fixed";
     const rect = anchor.getBoundingClientRect();
     const margin = 8;
@@ -528,7 +532,12 @@ function initHeat() {
       days.forEach((day) => {
         const cell = byKey[day.date + ":" + row.minutes] || { people: [], freeCount: 0, label: row.label };
         const button = h("button", { type: "button", class: "heat-cell" });
-        button.style.background = heatFill(cell.freeCount || 0, total);
+        const sharedCount = typeof cell.sharedCount === "number"
+          ? cell.sharedCount
+          : (cell.people || []).filter((person) => person.status !== "unshared").length;
+        const fill = heatFill(cell.freeCount || 0, sharedCount);
+        if (!fill) button.classList.add("is-unshared");
+        else button.style.background = fill;
         button.setAttribute("data-day", day.date);
         button.setAttribute("data-minutes", String(row.minutes));
         button.setAttribute("data-start", cell.start || "");
@@ -1437,9 +1446,37 @@ function initAdmin() {
   });
 }
 
+function initShareWindow() {
+  const form = document.getElementById("share-window-form");
+  if (!form) return;
+  const msg = document.getElementById("share-window-msg");
+  loadMe(false).then((me) => {
+    const chosen = me.shareWindow || "full";
+    const input = form.querySelector('input[name="share-window"][value="' + chosen + '"]');
+    if (input) input.checked = true;
+  }).catch(() => {
+    setBanner(msg, "bad", "Could not load your sharing window.");
+  });
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const selected = form.querySelector('input[name="share-window"]:checked');
+    const windowName = selected ? selected.value : "full";
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    send("POST", "/api/me/share-window", { window: windowName }).then(() => {
+      setBanner(msg, "ok", "Saved. Other people only see free or busy time inside this window.");
+    }).catch((err) => {
+      setBanner(msg, "bad", (err && err.message) || "Could not save sharing");
+    }).then(() => {
+      button.disabled = false;
+    });
+  });
+}
+
 if (page === "home" || page === "calendars" || page === "delete") initHome();
 if (page === "home") initHeat();
 if (page === "calendars") initCalendars();
+if (page === "calendars") initShareWindow();
 if (page === "admin") initAdmin();
 })();`;
 }

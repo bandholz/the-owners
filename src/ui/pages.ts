@@ -119,6 +119,8 @@ export function homePage(opts: {
         <span id="heat-legend-min">0/0 Available</span>
         <span id="heat-scale" class="heat-scale"></span>
         <span id="heat-legend-max">0/0 Available</span>
+        <span class="heat-unshared-key" aria-hidden="true"></span>
+        <span>Not shared</span>
       </div>
       <p class="hint" id="heat-rules">Hover a time to see who is free and who is busy. Weekdays only, 9:00 AM–5:00 PM Central, at most five business days.</p>
       <div id="heat-msg" class="banner" hidden></div>
@@ -153,6 +155,20 @@ export function homePage(opts: {
     viewer,
     main,
   });
+}
+
+function shareWindowCard(): string {
+  return `<section class="card" id="share-window-card">
+      <h2>What others can see</h2>
+      <p class="hint">Choose how far ahead other people can see your free or busy time. Outside that window, your time is not shared. Next week is the next 7 days, and next month is the next 30 days, both rolling forward from now in Central Time.</p>
+      <form id="share-window-form" class="stack-sm">
+        <label class="check-row"><input type="radio" name="share-window" value="full" checked /> <span>Full future</span></label>
+        <label class="check-row"><input type="radio" name="share-window" value="week" /> <span>Next week</span></label>
+        <label class="check-row"><input type="radio" name="share-window" value="month" /> <span>Next month</span></label>
+        <div class="row"><button class="btn btn-primary" type="submit">Save sharing</button></div>
+      </form>
+      <div id="share-window-msg" class="banner" hidden></div>
+    </section>`;
 }
 
 function disconnectCard(): string {
@@ -192,6 +208,7 @@ export function calendarsPage(viewer: Viewer): Response {
             <div id="calendars-body"><p class="hint">Loading calendars…</p></div>
           </section>
         </div>
+        ${shareWindowCard()}
         ${disconnectCard()}`
       : `<header class="page-head">
           <h1>Calendars</h1>
@@ -204,6 +221,7 @@ export function calendarsPage(viewer: Viewer): Response {
             <a class="btn btn-primary" href="/auth/google/calendar/start">Connect Google Calendar</a>
           </section>
         </div>
+        ${shareWindowCard()}
         ${disconnectCard()}`;
 
   return renderApp({

@@ -16,6 +16,7 @@ import {
   markLogin,
   normalizeEmail,
   removeUser,
+  setShareWindow,
   writeAudit,
 } from "./db/users";
 import {
@@ -34,6 +35,12 @@ import { findSharedSlots } from "./freebusy/intersect";
 import { buildAvailabilityGrid, includedDayKeys } from "./freebusy/heatmap";
 import { getHeatmapSettings } from "./db/heatmap-settings";
 import { queryFreeBusy, refreshAccessToken } from "./calendar/freebusy-client";
+import {
+  clipRangeToShare,
+  normalizeShareWindow,
+  shareBounds,
+  unsharedMasks,
+} from "./calendar/share-window";
 import { createCalendarEvent, deleteCalendarEvent } from "./calendar/events";
 import {
   defaultCalendarSelection,
@@ -70,7 +77,20 @@ async function loadUserBusy(
   user: UserRow,
   rangeStart: Date,
   rangeEnd: Date,
-): Promise<BusyInterval[] | Response> {
+  now = new Date(),
+): Promise<
+  | { busy: BusyInterval[]; shareFrom: string | null; shareUntil: string | null }
+  | Response
+> {
+  const window = normalizeShareWindow(user.share_window);
+  const bounds = shareBounds(window, now);
+  const shareFrom = window === "full" ? null : bounds.from.toISOString();
+  const shareUntil = bounds.until ? bounds.until.toISOString() : null;
+  const clip = clipRangeToShare(rangeStart, rangeEnd, bounds);
+  const hidden = unsharedMasks(rangeStart, rangeEnd, bounds);
+  if (!clip) {
+    return { busy: hidden, shareFrom, shareUntil };
+  }
   const refresh = await loadRefreshToken(
     env.DB,
     user.id,
@@ -85,12 +105,13 @@ async function loadUserBusy(
   const cals = await getSelectedCalendars(env.DB, user.id);
   const ids = cals.map((c) => c.calendar_id);
   if (!ids.length) ids.push("primary");
-  return queryFreeBusy({
-    timeMin: rangeStart.toISOString(),
-    timeMax: rangeEnd.toISOString(),
+  const visible = await queryFreeBusy({
+    timeMin: clip.start.toISOString(),
+    timeMax: clip.end.toISOString(),
     calendarIds: ids,
     accessToken: access,
   });
+  return { busy: [...visible, ...hidden], shareFrom, shareUntil };
 }
 
 export default {
@@ -429,8 +450,41 @@ async function handle(request: Request, env: Env): Promise<Response> {
       calendarRequired: authed.user.role !== "guest",
       canCreateEvents:
         authed.user.token_status === "ok" && tokenCanCreateEvents(scopes),
+      shareWindow: normalizeShareWindow(authed.user.share_window),
       csrf: authed.csrfSecret,
     });
+  }
+
+  if (path === "/api/me/share-window" && request.method === "POST") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    if (csrfErr) return csrfErr;
+    if (authed.user.role === "guest") {
+      return jsonError(400, "guests do not share a calendar");
+    }
+    const body = (await request.json()) as { window?: unknown };
+    if (body.window !== "full" && body.window !== "week" && body.window !== "month") {
+      return jsonError(400, "window must be full, week, or month");
+    }
+    try {
+      await setShareWindow(env.DB, authed.user.id, body.window);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("no such column")) {
+        return jsonError(
+          503,
+          "calendar sharing is not available until the database migration is applied",
+        );
+      }
+      throw err;
+    }
+    await writeAudit(env, {
+      actorUserId: authed.user.id,
+      action: "share_window",
+      meta: { window: body.window },
+    });
+    return jsonOk({ shareWindow: body.window });
   }
 
   if (path === "/api/slots" && request.method === "POST") {
@@ -497,9 +551,9 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
     const busyByUser: BusyInterval[][] = [];
     for (const u of selectedUsers) {
-      const busy = await loadUserBusy(env, u, rangeStart, rangeEnd);
-      if (busy instanceof Response) return busy;
-      busyByUser.push(busy);
+      const loaded = await loadUserBusy(env, u, rangeStart, rangeEnd);
+      if (loaded instanceof Response) return loaded;
+      busyByUser.push(loaded.busy);
     }
 
     const slots = findSharedSlots({
@@ -612,17 +666,24 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const windowEndMinutes = settings.windowEndMinutes;
 
     const busyByPerson: BusyInterval[][] = [];
+    const shareByPerson: Array<{ shareFrom: string | null; shareUntil: string | null }> = [];
     for (const u of selectedUsers) {
-      const busy = await loadUserBusy(env, u, rangeStart, rangeEnd);
-      if (busy instanceof Response) return busy;
-      busyByPerson.push(busy);
+      const loaded = await loadUserBusy(env, u, rangeStart, rangeEnd);
+      if (loaded instanceof Response) return loaded;
+      busyByPerson.push(loaded.busy);
+      shareByPerson.push({
+        shareFrom: loaded.shareFrom,
+        shareUntil: loaded.shareUntil,
+      });
     }
 
     const grid = buildAvailabilityGrid({
-      people: selectedUsers.map((u) => ({
+      people: selectedUsers.map((u, index) => ({
         id: u.id,
         name: u.name,
         email: u.email,
+        shareFrom: shareByPerson[index]?.shareFrom ?? null,
+        shareUntil: shareByPerson[index]?.shareUntil ?? null,
       })),
       busyByPerson,
       rangeStart,

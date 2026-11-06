@@ -459,6 +459,15 @@ select {
   padding: 0;
   background: #fff;
 }
+.heat-cell.is-unshared {
+  background: repeating-linear-gradient(-45deg, #f4f4f4, #f4f4f4 3px, #e4e4e4 3px, #e4e4e4 6px) !important;
+}
+.heat-unshared-key {
+  width: 28px;
+  height: 12px;
+  border: 1px solid #1a1a1a;
+  background: repeating-linear-gradient(-45deg, #f4f4f4, #f4f4f4 3px, #e4e4e4 3px, #e4e4e4 6px);
+}
 .heat-cell.is-selected { box-shadow: inset 0 0 0 2px #1a1a1a; }
 .heat-cell:hover, .heat-cell:focus { box-shadow: inset 0 0 0 1px #1a1a1a; }
 .heat-cell.is-selected:hover, .heat-cell.is-selected:focus { box-shadow: inset 0 0 0 2px #1a1a1a; }

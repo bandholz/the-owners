@@ -26,13 +26,17 @@ export interface AvailabilityPerson {
   id: string;
   name: string | null;
   email: string;
+  /** ISO time. Null means no lower bound (full future). */
+  shareFrom?: string | null;
+  /** ISO time. Null means no upper bound (full future). */
+  shareUntil?: string | null;
 }
 
 export interface AvailabilityCellPerson {
   id: string;
   name: string | null;
   email: string;
-  status: "free" | "busy";
+  status: "free" | "busy" | "unshared";
 }
 
 export interface AvailabilityDay {
@@ -53,6 +57,8 @@ export interface AvailabilityCell {
   start: string;
   end: string;
   freeCount: number;
+  /** People who shared this slot (free or busy). Zero means the cell is not a free/busy result. */
+  sharedCount: number;
   people: AvailabilityCellPerson[];
 }
 
@@ -254,6 +260,19 @@ export function buildAvailabilityGrid(input: {
       const slotEnd = end.getTime();
       const people: AvailabilityCellPerson[] = input.people.map(
         (person, index) => {
+          const from = person.shareFrom ? new Date(person.shareFrom).getTime() : null;
+          const until = person.shareUntil ? new Date(person.shareUntil).getTime() : null;
+          const shared =
+            (from == null || slotStart >= from) &&
+            (until == null || slotEnd <= until);
+          if (!shared) {
+            return {
+              id: person.id,
+              name: person.name,
+              email: person.email,
+              status: "unshared" as const,
+            };
+          }
           const busyList = input.busyByPerson[index] ?? [];
           const isBusy = busyList.some((busy) =>
             overlaps(slotStart, slotEnd, busy),
@@ -262,10 +281,11 @@ export function buildAvailabilityGrid(input: {
             id: person.id,
             name: person.name,
             email: person.email,
-            status: isBusy ? "busy" : "free",
+            status: isBusy ? ("busy" as const) : ("free" as const),
           };
         },
       );
+      const sharedCount = people.filter((p) => p.status !== "unshared").length;
       cells.push({
         day: day.date,
         minutes: row.minutes,
@@ -273,6 +293,7 @@ export function buildAvailabilityGrid(input: {
         start: start.toISOString(),
         end: end.toISOString(),
         freeCount: people.filter((p) => p.status === "free").length,
+        sharedCount,
         people,
       });
     }

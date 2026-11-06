@@ -187,6 +187,11 @@ describe("staging screens", () => {
     expect(text).toContain('href="/calendars"');
     expect(text).toContain('id="disconnect-card"');
     expect(text).toContain('id="delete-account"');
+    expect(text).toContain('id="share-window-form"');
+    expect(text).toContain("Full future");
+    expect(text).toContain("Next week");
+    expect(text).toContain("Next month");
+    expect(text).toContain("/api/me/share-window");
     expect(text).not.toContain('id="nav-times"');
   });
 
@@ -331,6 +336,18 @@ describe("staging screens", () => {
       authed(user()),
     );
     expect(events.status).toBe(403);
+    const share = await worker.fetch(
+      new Request(`${BASE}/api/me/share-window`, {
+        method: "POST",
+        headers: {
+          cookie: "ots_session=sess-1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ window: "week" }),
+      }),
+      authed(user()),
+    );
+    expect(share.status).toBe(403);
   });
 });
 
@@ -349,6 +366,8 @@ describe("page script time helpers", () => {
     expect(script).toContain("/api/heatmap-settings");
     expect(script).toContain("/api/admin/heatmap-settings");
     expect(script).toContain("/api/events");
+    expect(script).toContain("/api/me/share-window");
+    expect(script).toContain("Not shared");
     expect(script).toContain("Reconnect Google Calendar");
     expect(script).not.toContain("heat-window-start");
     expect(script).toContain('names("Free"');

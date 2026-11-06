@@ -1,5 +1,6 @@
 export type Role = "host" | "producer" | "guest" | "admin";
 export type TokenStatus = "none" | "ok" | "expired" | "revoked";
+export type ShareWindow = "full" | "week" | "month";
 
 export interface Env {
   DB: D1Database;
@@ -34,6 +35,8 @@ export interface UserRow {
   last_login_at: string | null;
   calendar_connected_at: string | null;
   token_status: TokenStatus;
+  /** Missing on rows created before the share-window migration. */
+  share_window?: ShareWindow | null;
 }
 
 export interface BusyInterval {

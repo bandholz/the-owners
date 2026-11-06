@@ -332,6 +332,7 @@ describe("page script time helpers", () => {
     expect(script).toContain("/api/availability");
     expect(script).toContain("heat-person");
     expect(script).toContain("Add a person");
+    expect(script).toContain('person.role === "host"');
     expect(script).toContain("business days");
     expect(script).toContain("/api/heatmap-settings");
     expect(script).toContain("/api/admin/heatmap-settings");

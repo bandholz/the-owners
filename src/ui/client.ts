@@ -628,7 +628,11 @@ function initHeat() {
       groups.forEach((group) => {
         groupEl.append(h("option", { value: group.id, text: group.name || "Group" }));
       });
+      people.forEach((person) => {
+        if (person.role === "host") pickedIds[person.id] = true;
+      });
       renderPeople();
+      scheduleHeat();
     })
     .catch((err) => {
       setBanner(msg, "bad", err.message || "Could not load people");

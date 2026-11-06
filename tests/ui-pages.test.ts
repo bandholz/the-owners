@@ -165,7 +165,9 @@ describe("staging screens", () => {
     const text = await html("/calendars", user());
     expect(text).toContain("<h1>Calendars</h1>");
     expect(text).toContain('data-state="ready"');
-    expect(text).toContain("Event details are never stored");
+    expect(text).toContain(
+      "Choose which calendars count toward busy time. It only shows as Busy or Free. Event details are never stored or shared with others.",
+    );
     expect(text).toContain("/api/calendars");
     expect(text).toContain('"PUT"');
     expect(text).toContain("x-csrf-token");

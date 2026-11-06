@@ -145,7 +145,7 @@ export function calendarsPage(viewer: Viewer): Response {
     : viewer.calendarOk
       ? `<header class="page-head">
           <h1>Calendars</h1>
-          <p class="lede">Choose which calendars count toward busy time. Event details are never stored.</p>
+          <p class="lede">Choose which calendars count toward busy time. It only shows as Busy or Free. Event details are never stored or shared with others.</p>
         </header>
         <div id="calendars-app" data-state="ready">
           <noscript><p class="banner banner-warn">JavaScript is required to load and save calendars.</p></noscript>

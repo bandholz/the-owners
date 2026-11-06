@@ -386,6 +386,7 @@ describe("page script time helpers", () => {
     expect(script).toContain("Custom ranges stop at ");
     expect(script).toContain("selectNextWeek");
     expect(script).toContain("is-empty");
+    expect(script).toContain("max-width: 960px");
     expect(script).not.toContain("is-outside");
     expect(script).not.toContain("Custom ranges stop at 14 days.");
     expect(script).toContain("nav-toggle");

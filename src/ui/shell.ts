@@ -756,8 +756,11 @@ select {
     min-width: 0;
   }
   .range-preset { flex: 1; }
-  .range-months { flex-direction: column; }
+  .range-body { padding: 10px 12px 12px; }
+  .range-months { display: block; }
   .range-month { min-width: 0; }
+  .range-month-head { margin: 2px 0 8px; }
+  .range-day { height: 40px; }
 }
 `;
 

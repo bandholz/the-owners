@@ -487,7 +487,9 @@ function initHeat() {
     if (!host) return;
     clear(host);
     if (!viewMonth) viewMonth = monthKey(draftStart || chicagoToday());
-    [0, 1].forEach((offset) => {
+    const singleMonth = window.matchMedia("(max-width: 960px)").matches;
+    const offsets = singleMonth ? [0] : [0, 1];
+    offsets.forEach((offset) => {
       const monthIso = shiftMonth(viewMonth, offset);
       const parts = isoParts(monthIso);
       const month = h("div", { class: "range-month" });
@@ -501,7 +503,7 @@ function initHeat() {
         head.append(prev);
       } else head.append(h("span", { class: "range-nav-spacer" }));
       head.append(h("span", { text: monthTitle(monthIso) }));
-      if (offset === 1) {
+      if (singleMonth || offset === 1) {
         const next = h("button", { type: "button", class: "range-nav", text: "›", "aria-label": "Next month" });
         next.addEventListener("click", () => {
           viewMonth = shiftMonth(viewMonth, 1);
@@ -721,6 +723,12 @@ function initHeat() {
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && pop && !pop.hidden) closeRange(true);
     });
+    const narrowQuery = window.matchMedia("(max-width: 960px)");
+    if (narrowQuery.addEventListener) {
+      narrowQuery.addEventListener("change", () => {
+        if (!pop.hidden) renderMonths();
+      });
+    }
   }
 
   function selectedGroups() {

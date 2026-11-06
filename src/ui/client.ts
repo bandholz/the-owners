@@ -1631,22 +1631,32 @@ function initAdmin() {
       groupList.append(h("p", { class: "hint", text: "No saved groups yet." }));
       return;
     }
+    const wrap = h("div", { class: "table-wrap" });
+    const table = h("table", { class: "data-table" });
+    const head = h("tr", {});
+    ["Group", "Members", "Add a person", "Actions"].forEach((label) => {
+      head.append(h("th", { scope: "col", text: label }));
+    });
+    const thead = h("thead", {});
+    thead.append(head);
+    const tbody = h("tbody", {});
     groups.forEach((group) => {
-      const card = h("article", { class: "subcard" });
-      const nameForm = h("form", { class: "form-row" });
+      const tr = h("tr", {});
       const nameInput = h("input", {
         type: "text",
         value: group.name || "",
         maxlength: "80",
-        required: "true",
         "aria-label": "Group name",
       });
-      const rename = h("button", { class: "btn", type: "submit", text: "Rename" });
+      const rename = h("button", { class: "btn", type: "button", text: "Rename" });
       const del = h("button", { class: "btn btn-danger", type: "button", text: "Delete" });
-      nameForm.append(nameInput, rename, del);
-      nameForm.addEventListener("submit", (e) => {
-        e.preventDefault();
-        send("POST", "/api/groups/rename", { groupId: group.id, name: nameInput.value })
+      rename.addEventListener("click", () => {
+        const name = nameInput.value.trim();
+        if (!name) {
+          setBanner(groupMsg, "bad", "Enter a group name.");
+          return;
+        }
+        send("POST", "/api/groups/rename", { groupId: group.id, name: name })
           .then(() => {
             setBanner(groupMsg, "ok", "Renamed group.");
             return refresh();
@@ -1662,9 +1672,12 @@ function initAdmin() {
           })
           .catch((err) => setBanner(groupMsg, "bad", err.message || "Could not delete"));
       });
-      const members = h("div", { class: "row" });
+      const nameCell = h("td", {});
+      nameCell.append(nameInput);
+      const members = h("td", {});
+      const chips = h("div", { class: "row" });
       const ids = Array.isArray(group.memberIds) ? group.memberIds : [];
-      if (!ids.length) members.append(h("p", { class: "hint", text: "No members yet." }));
+      if (!ids.length) chips.append(h("span", { class: "sub", text: "No members yet." }));
       ids.forEach((id) => {
         const user = users.find((u) => u.id === id);
         const label = user ? user.email : id;
@@ -1677,9 +1690,11 @@ function initAdmin() {
             .catch((err) => setBanner(groupMsg, "bad", err.message || "Could not remove member"));
         });
         chip.append(x);
-        members.append(chip);
+        chips.append(chip);
       });
-      const addForm = h("form", { class: "form-row" });
+      members.append(chips);
+      const addCell = h("td", {});
+      const addForm = h("form", { class: "row" });
       const sel = h("select", { "aria-label": "Person to add" });
       sel.append(h("option", { value: "", text: "Add a person" }));
       users.forEach((u) => {
@@ -1698,9 +1713,17 @@ function initAdmin() {
           })
           .catch((err) => setBanner(groupMsg, "bad", err.message || "Could not add member"));
       });
-      card.append(nameForm, members, addForm);
-      groupList.append(card);
+      addCell.append(addForm);
+      const actions = h("td", {});
+      const actionRow = h("div", { class: "row" });
+      actionRow.append(rename, del);
+      actions.append(actionRow);
+      tr.append(nameCell, members, addCell, actions);
+      tbody.append(tr);
     });
+    table.append(thead, tbody);
+    wrap.append(table);
+    groupList.append(wrap);
   }
 
   function renderAccess(data) {

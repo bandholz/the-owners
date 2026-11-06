@@ -345,6 +345,38 @@ a { color: inherit; }
   border-radius: 12px;
   padding: 12px;
 }
+.table-wrap { width: 100%; overflow-x: auto; }
+.data-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+.data-table .row { flex-wrap: nowrap; }
+.data-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table input[type="text"] {
+  width: 100%;
+  min-width: 9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  font-weight: 500;
+}
+.data-table select { min-width: 11rem; width: auto; }
 .chip {
   display: inline-flex;
   align-items: center;

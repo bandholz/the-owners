@@ -17,7 +17,7 @@ Still pick:
 
 - [ ] **Domain base.** Proposed: `sovrnty.com` → `scheduler-staging.sovrnty.com` / `scheduler.sovrnty.com` (+ Workers previews on `beardbrand` behind Access).
 - [ ] **Repo name.** Proposed: `bandholz/operators-the-owners-scheduler`.
-- [ ] **First admin email** (exact Google account for seed admin).
+- [x] **First admin email:** `eric@beardbrand.com` (seed admin; the only staging user for now, no other people yet).
 
 ---
 
@@ -41,6 +41,7 @@ Still pick:
   - `https://www.googleapis.com/auth/calendar.freebusy` (**sensitive**)
   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (**sensitive** / restricted depending on Google’s current classification — needed for picker)
 - [ ] **Test users:** add every invitee while in Testing mode. After each admin invite, use the app’s **Google test users to add/remove** list (`GET /api/admin/google-test-users`) and ack after you update the console.
+  - For staging, add exactly one test user: `eric@beardbrand.com`. No one else yet.
 
 ---
 
@@ -105,3 +106,9 @@ Account `d9eebda3928171a0baf30eaffb2c03be` (workers subdomain `beardbrand`).
 Hosts: Michael Techu, Andrea Nusete Elliott, Eric Bandholz, Paul Hadigee, Will Roman (Chisos).  
 Producer: Aaron Orndorff (Operators Network).  
 Admin: Eric.
+
+## Staging allowlist (decided Nov 5)
+- Google OAuth test users: `eric@beardbrand.com` only.
+- Cloudflare Access policy (scheduler-staging.sovrnty.com): include email `eric@beardbrand.com` only.
+- App invite list: seed `eric@beardbrand.com` as admin (via the first-admin seed when staging is created).
+- No other people until the security review is done and Eric approves.

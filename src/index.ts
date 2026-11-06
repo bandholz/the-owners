@@ -78,10 +78,19 @@ async function loadUserBusy(
   rangeStart: Date,
   rangeEnd: Date,
   now = new Date(),
+  options?: { unsharedIfDisconnected?: boolean },
 ): Promise<
-  | { busy: BusyInterval[]; shareFrom: string | null; shareUntil: string | null }
+  | {
+      busy: BusyInterval[];
+      shareFrom: string | null;
+      shareUntil: string | null;
+      unshared?: boolean;
+    }
   | Response
 > {
+  if (options?.unsharedIfDisconnected && user.token_status !== "ok") {
+    return { busy: [], shareFrom: null, shareUntil: null, unshared: true };
+  }
   const window = normalizeShareWindow(user.share_window);
   const bounds = shareBounds(window, now);
   const shareFrom = window === "full" ? null : bounds.from.toISOString();
@@ -96,7 +105,12 @@ async function loadUserBusy(
     user.id,
     env.TOKEN_ENCRYPTION_KEY,
   );
-  if (!refresh) return jsonError(400, `missing token: ${user.email}`);
+  if (!refresh) {
+    if (options?.unsharedIfDisconnected) {
+      return { busy: [], shareFrom: null, shareUntil: null, unshared: true };
+    }
+    return jsonError(400, `missing token: ${user.email}`);
+  }
   const access = await refreshAccessToken(
     env.GOOGLE_CLIENT_ID,
     env.GOOGLE_CLIENT_SECRET,
@@ -626,17 +640,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
       selectedUsers.push(u);
     }
 
-    const busyCheck = assertSelectedPeopleForBusy(selectedUsers);
-    if (!busyCheck.ok) return jsonError(400, busyCheck.error);
-    if (
-      authed.user.role === "guest" &&
-      selectedIds.includes(authed.user.id) &&
-      authed.user.token_status !== "ok"
-    ) {
-      return jsonError(
-        400,
-        "guests cannot include themselves in busy selection without a connected calendar",
-      );
+    if (selectedUsers.length === 0) {
+      return jsonError(400, "select at least one person (or a group with members)");
     }
 
     const rangeStart = new Date(body.rangeStart);
@@ -670,14 +675,21 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const windowEndMinutes = settings.windowEndMinutes;
 
     const busyByPerson: BusyInterval[][] = [];
-    const shareByPerson: Array<{ shareFrom: string | null; shareUntil: string | null }> = [];
+    const shareByPerson: Array<{
+      shareFrom: string | null;
+      shareUntil: string | null;
+      unshared?: boolean;
+    }> = [];
     for (const u of selectedUsers) {
-      const loaded = await loadUserBusy(env, u, rangeStart, rangeEnd);
+      const loaded = await loadUserBusy(env, u, rangeStart, rangeEnd, new Date(), {
+        unsharedIfDisconnected: true,
+      });
       if (loaded instanceof Response) return loaded;
       busyByPerson.push(loaded.busy);
       shareByPerson.push({
         shareFrom: loaded.shareFrom,
         shareUntil: loaded.shareUntil,
+        unshared: loaded.unshared === true,
       });
     }
 
@@ -688,6 +700,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
         email: u.email,
         shareFrom: shareByPerson[index]?.shareFrom ?? null,
         shareUntil: shareByPerson[index]?.shareUntil ?? null,
+        unshared: shareByPerson[index]?.unshared === true,
       })),
       busyByPerson,
       rangeStart,

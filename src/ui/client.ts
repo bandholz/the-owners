@@ -801,9 +801,7 @@ function initHeat() {
       if (members[person.id] || pickedIds[person.id]) return;
       const display = person.name || person.email || "Person";
       const suffix = person.token_status === "ok" ? "" : " (not connected)";
-      const opt = h("option", { value: person.id, text: display + suffix });
-      if (person.token_status !== "ok") opt.disabled = true;
-      personEl.append(opt);
+      personEl.append(h("option", { value: person.id, text: display + suffix }));
     });
     personEl.value = "";
   }
@@ -1236,13 +1234,6 @@ function initHeat() {
     if (!sel.picked.length) {
       clearBoard("Select people or a saved group.");
       setBanner(msg, "", "");
-      return;
-    }
-    const missing = sel.picked.filter((p) => p.token_status !== "ok");
-    if (missing.length) {
-      clear(gridEl);
-      hideHover();
-      setBanner(msg, "bad", "Calendar not connected for " + missing.map((p) => p.email).join(", ") + ".");
       return;
     }
     if (!committedStart || !committedEnd || committedStart > committedEnd) {

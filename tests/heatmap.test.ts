@@ -73,6 +73,46 @@ describe("availability heatmap", () => {
     );
   });
 
+  it("keeps a connected person's availability when someone else has no calendar", () => {
+    const grid = buildAvailabilityGrid({
+      timeZone: CT,
+      rangeStart: new Date("2026-11-10T06:00:00.000Z"),
+      rangeEnd: new Date("2026-11-11T06:00:00.000Z"),
+      windowStartMinutes: 9 * 60,
+      windowEndMinutes: 10 * 60,
+      people: [
+        { id: "a", name: "Ada Host", email: "ada@example.com" },
+        {
+          id: "b",
+          name: "Beau Producer",
+          email: "beau@example.com",
+          unshared: true,
+        },
+      ],
+      busyByPerson: [
+        [
+          {
+            start: new Date("2026-11-10T15:00:00.000Z"),
+            end: new Date("2026-11-10T15:30:00.000Z"),
+          },
+        ],
+        [],
+      ],
+    });
+
+    const nine = grid.cells.find((cell) => cell.label === "9:00 AM");
+    const nineThirty = grid.cells.find((cell) => cell.label === "9:30 AM");
+    expect(nine).toBeTruthy();
+    expect(nineThirty).toBeTruthy();
+    expect(nine!.people.map((person) => person.status)).toEqual(["busy", "unshared"]);
+    expect(nine!.sharedCount).toBe(1);
+    expect(nine!.freeCount).toBe(0);
+    expect(nineThirty!.people.map((person) => person.status)).toEqual(["free", "unshared"]);
+    expect(nineThirty!.sharedCount).toBe(1);
+    expect(nineThirty!.freeCount).toBe(1);
+    expect(grid.total).toBe(2);
+  });
+
   it("keeps a date range to the Chicago calendar days inside it", () => {
     const days = zoneDayKeys(
       new Date("2026-11-04T06:00:00.000Z"),

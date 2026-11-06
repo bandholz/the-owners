@@ -30,6 +30,8 @@ export interface AvailabilityPerson {
   shareFrom?: string | null;
   /** ISO time. Null means no upper bound (full future). */
   shareUntil?: string | null;
+  /** Invited, but no calendar is connected, so every slot is not shared. */
+  unshared?: boolean;
 }
 
 export interface AvailabilityCellPerson {
@@ -263,6 +265,7 @@ export function buildAvailabilityGrid(input: {
           const from = person.shareFrom ? new Date(person.shareFrom).getTime() : null;
           const until = person.shareUntil ? new Date(person.shareUntil).getTime() : null;
           const shared =
+            !person.unshared &&
             (from == null || slotStart >= from) &&
             (until == null || slotEnd <= until);
           if (!shared) {

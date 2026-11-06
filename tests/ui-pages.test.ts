@@ -399,6 +399,7 @@ describe("page script time helpers", () => {
     expect(script).toContain("/api/events");
     expect(script).toContain("/api/me/share-window");
     expect(script).toContain("Not shared");
+    expect(script).not.toContain("Calendar not connected for");
     expect(script).toContain("Reconnect Google Calendar");
     expect(script).not.toContain("heat-window-start");
     expect(script).toContain('names("Free"');

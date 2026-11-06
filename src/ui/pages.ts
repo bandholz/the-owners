@@ -127,8 +127,6 @@ export function homePage(opts: {
               </div>
             </div>
           </div>
-        </div>
-        <div class="heat-row">
           <label class="field">Group
             <select id="heat-group">
               <option value="">Add a group</option>

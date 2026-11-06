@@ -485,7 +485,7 @@ a { color: inherit; }
 .range-day {
   border: 0;
   background: transparent;
-  height: 32px;
+  height: 36px;
   width: 100%;
   min-width: 0;
   justify-self: stretch;
@@ -493,24 +493,35 @@ a { color: inherit; }
   font-size: 13px;
   cursor: pointer;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .range-day.is-empty {
   cursor: default;
   pointer-events: none;
 }
-.range-day.is-inrange { background: #e7e7e7; }
-.range-day.is-start { border-radius: 999px 0 0 999px; }
-.range-day.is-end { border-radius: 0 999px 999px 0; }
-.range-day.is-start.is-end { border-radius: 999px; background: transparent; }
+.range-day.is-inrange {
+  background: linear-gradient(#e7e7e7, #e7e7e7) center / 100% 32px no-repeat;
+}
+.range-day.is-start {
+  background: linear-gradient(#e7e7e7, #e7e7e7) right center / 50% 32px no-repeat;
+}
+.range-day.is-end {
+  background: linear-gradient(#e7e7e7, #e7e7e7) left center / 50% 32px no-repeat;
+}
+.range-day.is-start.is-end { background: transparent; }
 .range-day.is-endpoint span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: #1a1a1a;
   color: #fff;
+  position: relative;
+  z-index: 1;
 }
 .range-actions {
   display: flex;
@@ -724,24 +735,50 @@ select {
     gap: 8px;
   }
   .form-row .field { flex: 1 1 0; min-width: 8.5rem; }
-  .heat-controls { flex-direction: column; align-items: stretch; }
+  .heat-controls {
+    position: relative;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+  }
   .heat-row {
     display: flex;
+    flex: 1 1 auto;
     gap: 8px;
     align-items: flex-end;
     width: 100%;
+    min-width: 0;
   }
-  .heat-row > * { flex: 1 1 0; min-width: 0; }
-  .heat-controls select,
-  .range-trigger { width: 100%; }
+  .heat-row > .field { flex: 1 1 0; min-width: 0; }
+  .range-picker { position: static; flex: 0 1 auto; min-width: 0; }
+  .range-trigger {
+    width: auto;
+    max-width: 8.5rem;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  #heat-range-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .heat-controls select {
+    width: 100%;
+    min-width: 0;
+    font-size: 12px;
+    padding: 4px 26px 4px 6px;
+    background-position: right 6px center;
+  }
   .heat-legend { flex-wrap: wrap; }
   .heat-scale { width: 72px; flex: 1 1 72px; }
   .range-popover {
-    position: fixed;
-    left: 8px;
-    right: 8px;
-    top: auto;
-    bottom: 8px;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    bottom: auto;
     width: auto;
     min-width: 0;
     max-height: calc(100vh - 16px);
@@ -760,7 +797,7 @@ select {
   .range-months { display: block; }
   .range-month { min-width: 0; }
   .range-month-head { margin: 2px 0 8px; }
-  .range-day { height: 40px; }
+  .range-day { height: 36px; }
 }
 `;
 

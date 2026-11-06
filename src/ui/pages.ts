@@ -65,7 +65,7 @@ export function homePage(opts: {
       </header>
       <section class="card">
         <h2>Sign in</h2>
-        <p>Available times are shown in Central Time (America/Chicago).</p>
+        <p>Times are shown in Central Time (America/Chicago).</p>
         <a class="btn btn-primary" href="/auth/google/start">Sign in with Google</a>
       </section>`,
     );
@@ -122,17 +122,28 @@ export function homePage(opts: {
       </div>
       <p class="hint" id="heat-rules">Hover a time to see who is free and who is busy. Weekdays only, 9:00 AM–5:00 PM Central, at most five business days.</p>
       <div id="heat-msg" class="banner" hidden></div>
+      <div id="heat-create" class="heat-create" hidden>
+        <label class="field">Title
+          <input id="heat-title" type="text" maxlength="140" placeholder="Recording" />
+        </label>
+        <p id="heat-create-summary" class="hint"></p>
+        <div class="row">
+          <button type="button" class="btn btn-primary" id="heat-review">Review event</button>
+          <button type="button" class="btn" id="heat-clear">Clear</button>
+        </div>
+      </div>
+      <div id="heat-confirm" class="heat-confirm" hidden>
+        <p id="heat-confirm-copy"></p>
+        <ul id="heat-confirm-list"></ul>
+        <div class="row">
+          <button type="button" class="btn btn-primary" id="heat-confirm-go">Create on my calendar</button>
+          <button type="button" class="btn" id="heat-confirm-back">Back</button>
+        </div>
+      </div>
       <div id="heat-wrap" class="heat-wrap">
         <div id="heat-grid"><p class="hint">Select people or a saved group.</p></div>
         <div id="heat-hover" class="heat-hover" hidden></div>
       </div>
-      <p class="hint"><a href="/app">Open the available times list</a> for a single meeting length.</p>
-    </section>
-    <section class="card card-quiet">
-      <h2>Disconnect and delete</h2>
-      <p class="hint">Revokes calendar access and deletes your account, sessions, and saved calendar names.</p>
-      <div id="delete-msg" class="banner" hidden></div>
-      <button type="button" class="btn btn-danger" id="delete-account">Disconnect &amp; delete my data</button>
     </section>`;
 
   return renderApp({
@@ -144,6 +155,15 @@ export function homePage(opts: {
   });
 }
 
+function disconnectCard(): string {
+  return `<section class="card card-quiet" id="disconnect-card">
+      <h2>Disconnect and delete</h2>
+      <p class="hint">Revokes calendar access and deletes your account, sessions, and saved calendar names.</p>
+      <div id="delete-msg" class="banner" hidden></div>
+      <button type="button" class="btn btn-danger" id="delete-account">Disconnect &amp; delete my data</button>
+    </section>`;
+}
+
 export function calendarsPage(viewer: Viewer): Response {
   const main = viewer.isGuest
     ? `<header class="page-head">
@@ -153,10 +173,11 @@ export function calendarsPage(viewer: Viewer): Response {
       <div id="calendars-app" data-state="guest">
         <section class="card">
           <h2>No calendar needed</h2>
-          <p>Use Available times to see when hosts and producers are free. You only see free time for the people you select.</p>
-          <a class="btn btn-primary" href="/app">Available times</a>
+          <p>Use Home to see when hosts and producers are free. You only see free time for the people you select.</p>
+          <a class="btn btn-primary" href="/">Home</a>
         </section>
-      </div>`
+      </div>
+      ${disconnectCard()}`
     : viewer.calendarOk
       ? `<header class="page-head">
           <h1>Calendars</h1>
@@ -170,7 +191,8 @@ export function calendarsPage(viewer: Viewer): Response {
             <div id="calendars-msg" class="banner" hidden></div>
             <div id="calendars-body"><p class="hint">Loading calendars…</p></div>
           </section>
-        </div>`
+        </div>
+        ${disconnectCard()}`
       : `<header class="page-head">
           <h1>Calendars</h1>
           <p class="lede">Connect Google Calendar before choosing which calendars count.</p>
@@ -181,80 +203,13 @@ export function calendarsPage(viewer: Viewer): Response {
             <p>The connection reads free/busy and the calendar list. Event titles, guests, and descriptions are not requested or stored.</p>
             <a class="btn btn-primary" href="/auth/google/calendar/start">Connect Google Calendar</a>
           </section>
-        </div>`;
+        </div>
+        ${disconnectCard()}`;
 
   return renderApp({
     title: "Calendars",
     page: "calendars",
     active: "calendars",
-    viewer,
-    main,
-  });
-}
-
-export function availableTimesPage(viewer: Viewer): Response {
-  const main = `<header class="page-head">
-      <h1>Available times</h1>
-      <p class="lede">Overlapping free time in Central Time (${escapeHtml(viewer.timeZone)}).</p>
-    </header>
-    <div id="times-app" class="stack">
-      <noscript><p class="banner banner-warn">JavaScript is required to load people and available times.</p></noscript>
-      <section class="card">
-        <h2>Who needs to be free</h2>
-        <p class="hint">Pick people, a saved group, or both. A group includes every member. Your calendar is included only when you select yourself.</p>
-        <div id="guest-note" class="banner" hidden></div>
-        <label class="field">Saved group
-          <select id="group-id">
-            <option value="">No saved group</option>
-          </select>
-        </label>
-        <div id="people-list" class="stack-sm"><p class="hint">Loading people…</p></div>
-      </section>
-      <section class="card">
-        <h2>When</h2>
-        <form id="times-form" class="stack-sm">
-          <div class="form-grid">
-            <label class="field">Start date
-              <input id="range-start" type="date" required />
-            </label>
-            <label class="field">End date
-              <input id="range-end" type="date" required />
-            </label>
-            <label class="field">Meeting length
-              <select id="duration">
-                <option value="15">15 minutes</option>
-                <option value="30">30 minutes</option>
-                <option value="45">45 minutes</option>
-                <option value="60" selected>60 minutes</option>
-                <option value="90">90 minutes</option>
-                <option value="120">2 hours</option>
-              </select>
-            </label>
-            <label class="field">Daily window
-              <span class="window">
-                <input id="window-start" type="time" value="09:00" required />
-                <span class="to">to</span>
-                <input id="window-end" type="time" value="17:00" required />
-              </span>
-            </label>
-          </div>
-          <p class="hint">Up to 14 days. Results step every 15 minutes inside the daily window.</p>
-          <div class="row">
-            <button class="btn btn-primary" type="submit">Show available times</button>
-          </div>
-        </form>
-      </section>
-      <section class="card">
-        <h2>Open slots</h2>
-        <div id="times-msg" class="banner" hidden></div>
-        <div id="times-results"><p class="hint">Choose people and a range, then show available times.</p></div>
-      </section>
-    </div>`;
-
-  return renderApp({
-    title: "Available times",
-    page: "times",
-    active: "times",
     viewer,
     main,
   });
@@ -312,7 +267,7 @@ export function adminPage(viewer: Viewer): Response {
       </section>
       <section class="card" id="groups-card">
         <h2>Groups</h2>
-        <p class="hint">Saved groups can be picked on Available times. Choosing a group includes every member.</p>
+        <p class="hint">Saved groups can be picked on Home. Choosing a group includes every member.</p>
         <form id="group-create-form" class="form-row">
           <label class="field">Name
             <input id="group-name" type="text" required maxlength="80" />

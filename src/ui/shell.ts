@@ -11,7 +11,7 @@ export interface Viewer {
   timeZone: string;
 }
 
-export type NavKey = "home" | "times" | "calendars" | "admin";
+export type NavKey = "home" | "calendars" | "admin";
 
 export function escapeHtml(s: string): string {
   return s
@@ -432,20 +432,31 @@ a { color: inherit; }
   vertical-align: top;
   color: #1a1a1a;
 }
+.heat-table td { padding: 0; border-right: 1px solid #e6e6e6; border-bottom: 1px solid #e6e6e6; line-height: 0; }
+.heat-table tr.hour td { border-bottom-color: #cfcfcf; }
+.heat-table td:first-child { border-left: 1px solid #e6e6e6; }
+.heat-table tbody tr:first-child td { border-top: 1px solid #e6e6e6; }
 .heat-cell {
   display: block;
   width: 100%;
   min-width: 0;
-  height: 11px;
-  border-right: 1px solid #1a1a1a;
-  border-bottom: 1px dotted #8a8a8a;
-  background: #fff;
+  height: 22px;
+  border: 0;
   padding: 0;
+  background: #fff;
 }
-.heat-cell.hour { border-bottom-color: #1a1a1a; border-bottom-style: solid; }
-.heat-cell.edge-left { border-left: 1px solid #1a1a1a; }
-.heat-cell.edge-top { border-top: 1px solid #1a1a1a; }
-.heat-cell:hover, .heat-cell:focus { outline: 2px solid #1a1a1a; outline-offset: -2px; }
+.heat-cell.is-selected { box-shadow: inset 0 0 0 2px #1a1a1a; }
+.heat-cell:hover, .heat-cell:focus { box-shadow: inset 0 0 0 1px #1a1a1a; }
+.heat-cell.is-selected:hover, .heat-cell.is-selected:focus { box-shadow: inset 0 0 0 2px #1a1a1a; }
+.heat-create, .heat-confirm {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafafa;
+}
+.heat-confirm ul { margin: 6px 0 10px; padding-left: 18px; }
+#heat-wrap { touch-action: none; user-select: none; }
 .heat-hover {
   position: absolute;
   z-index: 4;
@@ -496,7 +507,6 @@ const ICONS = {
   home: icon(
     `<path d="M3.5 9.2 10 3.6l6.5 5.6V16.4a1 1 0 0 1-1 1H12v-4.2H8v4.2H4.5a1 1 0 0 1-1-1V9.2z"/>`,
   ),
-  times: icon(`<circle cx="10" cy="10" r="6.25"/><path d="M10 6.4V10l2.5 1.6"/>`),
   calendars: icon(
     `<rect x="3.4" y="4.4" width="13.2" height="12" rx="1.6"/><path d="M3.4 8.2h13.2M7 3.2v2.4M13 3.2v2.4"/>`,
   ),
@@ -612,7 +622,6 @@ function sidebar(viewer: Viewer, active: NavKey): string {
     ${brand(viewer.appName)}
     <nav aria-label="Primary">
       ${navLink("/", "nav-home", "Home", ICONS.home, active === "home")}
-      ${navLink("/app", "nav-times", "Available times", ICONS.times, active === "times")}
       ${navLink("/calendars", "nav-calendars", "Calendars", ICONS.calendars, active === "calendars")}
       ${admin}
     </nav>

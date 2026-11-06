@@ -270,6 +270,8 @@ function initHeat() {
   let people = [];
   let groups = [];
   let pickedIds = {};
+  let ranges = [];
+  let drag = null;
   let heatTimer = null;
   let heatAbort = null;
 
@@ -479,19 +481,24 @@ function initHeat() {
     thead.append(headRow);
     const tbody = h("tbody", {});
     rows.forEach((row, rowIndex) => {
-      const tr = h("tr", {});
+      const next = rows[rowIndex + 1];
+      const tr = h("tr", { class: !next || next.minutes % 60 === 0 ? "hour" : "" });
       tr.append(h("th", {
         class: "heat-time",
         text: row.minutes % 60 === 0 ? row.label : "",
       }));
-      days.forEach((day, dayIndex) => {
+      days.forEach((day) => {
         const cell = byKey[day.date + ":" + row.minutes] || { people: [], freeCount: 0, label: row.label };
         const button = h("button", { type: "button", class: "heat-cell" });
-        if (dayIndex === 0) button.classList.add("edge-left");
-        if (rowIndex === 0) button.classList.add("edge-top");
-        const next = rows[rowIndex + 1];
-        if (!next || next.minutes % 60 === 0) button.classList.add("hour");
         button.style.background = heatFill(cell.freeCount || 0, total);
+        button.setAttribute("data-day", day.date);
+        button.setAttribute("data-minutes", String(row.minutes));
+        button.setAttribute("data-start", cell.start || "");
+        button.setAttribute("data-end", cell.end || "");
+        button.setAttribute("data-label", cell.label || row.label);
+        button.setAttribute("data-day-label", day.label || "");
+        button.setAttribute("data-weekday", day.weekday || "");
+        button.setAttribute("data-slot", String(data.slotMinutes || 30));
         const enriched = {
           label: cell.label || row.label,
           endLabel: clockLabel(row.minutes + (data.slotMinutes || 30)),
@@ -524,6 +531,237 @@ function initHeat() {
     });
     table.append(thead, tbody);
     gridEl.append(table);
+    bindSelection(gridEl);
+    paintSelection();
+  }
+
+  function cellFromButton(button) {
+    return {
+      day: button.getAttribute("data-day") || "",
+      minutes: Number(button.getAttribute("data-minutes")),
+      start: button.getAttribute("data-start") || "",
+      end: button.getAttribute("data-end") || "",
+      label: button.getAttribute("data-label") || "",
+      dayLabel: button.getAttribute("data-day-label") || "",
+      weekday: button.getAttribute("data-weekday") || "",
+      slot: Number(button.getAttribute("data-slot") || "30"),
+    };
+  }
+
+  function buttonAt(day, minutes) {
+    return gridEl.querySelector('.heat-cell[data-day="' + day + '"][data-minutes="' + minutes + '"]');
+  }
+
+  function rangeCovers(range, day, minutes) {
+    return range.day === day && minutes >= range.startMin && minutes < range.endMin;
+  }
+
+  function paintSelection() {
+    gridEl.querySelectorAll(".heat-cell").forEach((button) => {
+      const day = button.getAttribute("data-day");
+      const minutes = Number(button.getAttribute("data-minutes"));
+      let on = ranges.some((range) => rangeCovers(range, day, minutes));
+      if (drag && drag.day === day) {
+        const low = Math.min(drag.anchor, drag.current);
+        const high = Math.max(drag.anchor, drag.current);
+        if (minutes >= low && minutes <= high) on = true;
+      }
+      button.classList.toggle("is-selected", on);
+    });
+    updateCreateBar();
+  }
+
+  function addRange(next) {
+    const sameDay = ranges.filter((range) => range.day === next.day);
+    const others = ranges.filter((range) => range.day !== next.day);
+    let startMin = next.startMin;
+    let endMin = next.endMin;
+    let startIso = next.startIso;
+    let endIso = next.endIso;
+    const rest = [];
+    sameDay.forEach((range) => {
+      if (range.endMin < startMin || range.startMin > endMin) {
+        rest.push(range);
+        return;
+      }
+      if (range.startMin < startMin) {
+        startMin = range.startMin;
+        startIso = range.startIso;
+      }
+      if (range.endMin > endMin) {
+        endMin = range.endMin;
+        endIso = range.endIso;
+      }
+    });
+    ranges = others.concat(rest, [{
+      day: next.day,
+      dayLabel: next.dayLabel,
+      weekday: next.weekday,
+      startMin: startMin,
+      endMin: endMin,
+      startIso: startIso,
+      endIso: endIso,
+    }]);
+  }
+
+  function commitDrag() {
+    if (!drag) return;
+    const low = Math.min(drag.anchor, drag.current);
+    const high = Math.max(drag.anchor, drag.current);
+    const existing = ranges.find((range) => rangeCovers(range, drag.day, drag.anchor));
+    if (drag.anchor === drag.current && existing) {
+      ranges = ranges.filter((range) => range !== existing);
+    } else {
+      const startBtn = buttonAt(drag.day, low);
+      const endBtn = buttonAt(drag.day, high);
+      if (startBtn && endBtn) {
+        addRange({
+          day: drag.day,
+          dayLabel: drag.dayLabel,
+          weekday: drag.weekday,
+          startMin: low,
+          endMin: high + drag.slot,
+          startIso: startBtn.getAttribute("data-start"),
+          endIso: endBtn.getAttribute("data-end"),
+        });
+      }
+    }
+    drag = null;
+    paintSelection();
+  }
+
+  function bindSelection(host) {
+    host.addEventListener("pointerdown", (e) => {
+      const button = e.target.closest(".heat-cell");
+      if (!button || e.button !== 0) return;
+      e.preventDefault();
+      const info = cellFromButton(button);
+      drag = {
+        day: info.day,
+        anchor: info.minutes,
+        current: info.minutes,
+        dayLabel: info.dayLabel,
+        weekday: info.weekday,
+        slot: info.slot,
+      };
+      host.setPointerCapture(e.pointerId);
+      paintSelection();
+    });
+    host.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const button = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = button && button.closest ? button.closest(".heat-cell") : null;
+      if (!cell || cell.getAttribute("data-day") !== drag.day) return;
+      drag.current = Number(cell.getAttribute("data-minutes"));
+      paintSelection();
+    });
+    host.addEventListener("pointerup", () => commitDrag());
+    host.addEventListener("pointercancel", () => {
+      drag = null;
+      paintSelection();
+    });
+  }
+
+  function rangeText(range) {
+    const startBtn = buttonAt(range.day, range.startMin);
+    const endMinutes = range.endMin;
+    const endLabel = clockLabel(endMinutes);
+    const startLabel = startBtn ? startBtn.getAttribute("data-label") : clockLabel(range.startMin);
+    return range.weekday + " " + range.dayLabel + " " + startLabel + "–" + endLabel;
+  }
+
+  function updateCreateBar() {
+    const bar = document.getElementById("heat-create");
+    const summary = document.getElementById("heat-create-summary");
+    if (!bar || !summary) return;
+    if (!ranges.length) {
+      bar.hidden = true;
+      const confirm = document.getElementById("heat-confirm");
+      if (confirm) confirm.hidden = true;
+      summary.textContent = "";
+      return;
+    }
+    bar.hidden = false;
+    summary.textContent = ranges.map(rangeText).join("; ");
+  }
+
+  function selectedPeople() {
+    return selectedIds().picked;
+  }
+
+  function reviewEvent() {
+    const titleInput = document.getElementById("heat-title");
+    const title = titleInput ? titleInput.value.trim() : "";
+    if (!title) {
+      setBanner(msg, "bad", "Add a title before creating the event.");
+      return;
+    }
+    if (!ranges.length) {
+      setBanner(msg, "bad", "Select a time on the calendar first.");
+      return;
+    }
+    const people = selectedPeople();
+    if (!people.length) {
+      setBanner(msg, "bad", "Select at least one person.");
+      return;
+    }
+    const missingEmail = people.filter((person) => !person.email);
+    if (missingEmail.length) {
+      setBanner(msg, "bad", "A selected person has no email, so they cannot be invited.");
+      return;
+    }
+    if (document.body.getAttribute("data-calendar") !== "ok") {
+      setBanner(msg, "bad", "Connect Google Calendar before creating an event.");
+      return;
+    }
+    const list = document.getElementById("heat-confirm-list");
+    const copy = document.getElementById("heat-confirm-copy");
+    clear(list);
+    ranges.forEach((range) => list.append(h("li", { text: rangeText(range) })));
+    const names = people.map((person) => person.name || person.email).join(", ");
+    copy.textContent = "Create " + ranges.length + " event" + (ranges.length === 1 ? "" : "s") +
+      " titled “" + title + "” on your calendar for " + names + ".";
+    document.getElementById("heat-confirm").hidden = false;
+    setBanner(msg, "", "");
+  }
+
+  function createEvents() {
+    const title = document.getElementById("heat-title").value.trim();
+    const people = selectedPeople();
+    const button = document.getElementById("heat-confirm-go");
+    button.disabled = true;
+    loadMe(false).then((me) => {
+      if (!me.canCreateEvents) {
+        setBanner(msg, "bad", "Reconnect Google Calendar to create events. The current connection can only read free/busy.");
+        const link = h("a", { href: "/auth/google/calendar/start", text: "Reconnect Google Calendar" });
+        document.getElementById("heat-msg").append(document.createTextNode(" "));
+        document.getElementById("heat-msg").append(link);
+        button.disabled = false;
+        return;
+      }
+      return send("POST", "/api/events", {
+        title: title,
+        ranges: ranges.map((range) => ({ start: range.startIso, end: range.endIso })),
+        userIds: people.map((person) => person.id),
+      }).then((data) => {
+        const count = data.created ? data.created.length : ranges.length;
+        setBanner(msg, "ok", "Created " + count + " event" + (count === 1 ? "" : "s") + " on your calendar. Invites go to the other selected people.");
+        ranges = [];
+        document.getElementById("heat-title").value = "";
+        document.getElementById("heat-confirm").hidden = true;
+        paintSelection();
+      });
+    }).catch((err) => {
+      const text = (err && err.message) || "Could not create the event";
+      setBanner(msg, "bad", text);
+      if (text.indexOf("Reconnect Google Calendar") !== -1) {
+        const link = h("a", { href: "/auth/google/calendar/start", text: "Reconnect Google Calendar" });
+        document.getElementById("heat-msg").append(document.createTextNode(" "));
+        document.getElementById("heat-msg").append(link);
+      }
+    }).then(() => {
+      button.disabled = false;
+    });
   }
 
   function loadHeat() {
@@ -615,6 +853,24 @@ function initHeat() {
       scheduleHeat();
     });
   }
+  const reviewBtn = document.getElementById("heat-review");
+  const clearBtn = document.getElementById("heat-clear");
+  const confirmBtn = document.getElementById("heat-confirm-go");
+  const backBtn = document.getElementById("heat-confirm-back");
+  if (reviewBtn) reviewBtn.addEventListener("click", reviewEvent);
+  if (clearBtn) clearBtn.addEventListener("click", () => {
+    ranges = [];
+    drag = null;
+    const title = document.getElementById("heat-title");
+    if (title) title.value = "";
+    const confirm = document.getElementById("heat-confirm");
+    if (confirm) confirm.hidden = true;
+    paintSelection();
+  });
+  if (confirmBtn) confirmBtn.addEventListener("click", createEvents);
+  if (backBtn) backBtn.addEventListener("click", () => {
+    document.getElementById("heat-confirm").hidden = true;
+  });
 
   Promise.all([
     getJson("/api/heatmap-settings"),
@@ -731,205 +987,6 @@ function renderCalendars(body, msg, data) {
       })
       .then(() => {
         save.disabled = chosen().length === 0;
-      });
-  });
-}
-
-function initTimes() {
-  const root = document.getElementById("times-app");
-  if (!root) return;
-  const peopleEl = document.getElementById("people-list");
-  const groupEl = document.getElementById("group-id");
-  const form = document.getElementById("times-form");
-  const msg = document.getElementById("times-msg");
-  const results = document.getElementById("times-results");
-  const guestNote = document.getElementById("guest-note");
-  if (document.body.getAttribute("data-guest") === "true" && guestNote) {
-    guestNote.hidden = false;
-    guestNote.textContent = "Guests can look up available times without connecting a calendar. Select people who have connected.";
-  }
-  const start = document.getElementById("range-start");
-  const end = document.getElementById("range-end");
-  const today = chicagoToday();
-  if (start && !start.value) start.value = today;
-  if (end && !end.value) end.value = addDays(today, 6);
-
-  let people = [];
-  let groups = [];
-
-  function memberSet() {
-    const group = groups.find((g) => g.id === groupEl.value);
-    const set = {};
-    const ids = group && Array.isArray(group.memberIds) ? group.memberIds : [];
-    ids.forEach((id) => {
-      set[id] = true;
-    });
-    return set;
-  }
-
-  function renderPeople() {
-    const previously = {};
-    peopleEl.querySelectorAll("input[type=checkbox]").forEach((box) => {
-      if (box.checked && !box.disabled) previously[box.getAttribute("data-user-id")] = true;
-    });
-    clear(peopleEl);
-    const members = memberSet();
-    if (!people.length) {
-      peopleEl.append(h("p", { class: "hint", text: "No one has been invited yet." }));
-      return;
-    }
-    people.forEach((person) => {
-      const connected = person.token_status === "ok";
-      const inGroup = !!members[person.id];
-      const box = h("input", { type: "checkbox" });
-      box.disabled = !connected || inGroup;
-      box.checked = inGroup || !!previously[person.id];
-      box.setAttribute("data-user-id", String(person.id));
-      const display = person.name || person.email || "Person";
-      const bits = [];
-      if (person.name && person.email) bits.push(person.email);
-      bits.push(roleText(person.role));
-      if (inGroup) bits.push("Included with the group");
-      if (!connected) bits.push("Calendar not connected");
-      const copy = h("span", { class: "check-copy" });
-      copy.append(h("span", { class: "check-title", text: display }));
-      copy.append(h("span", { class: "sub", text: bits.filter(Boolean).join(" · ") }));
-      const label = h("label", { class: "check-row" + (connected ? "" : " is-disabled") });
-      label.append(box, copy, pill(statusText(person.token_status), statusTone(person.token_status)));
-      peopleEl.append(label);
-    });
-  }
-
-  function renderSlots(data) {
-    clear(results);
-    const slots = Array.isArray(data.slots) ? data.slots : [];
-    let currentDay = "";
-    let group = null;
-    slots.forEach((slot) => {
-      const startCt = String(slot.startCt || "");
-      const endCt = String(slot.endCt || "");
-      const parts = startCt.split(", ");
-      let day = startCt;
-      let time = startCt;
-      if (parts.length >= 2 && /[AP]M/.test(parts[parts.length - 1])) {
-        day = parts.slice(0, parts.length - 1).join(", ");
-        time = parts[parts.length - 1];
-      }
-      const endParts = endCt.split(", ");
-      let endTime = endCt;
-      if (endParts.length >= 2 && /[AP]M/.test(endParts[endParts.length - 1])) {
-        endTime = endParts[endParts.length - 1];
-      }
-      if (day !== currentDay) {
-        currentDay = day;
-        group = h("div", { class: "day-group" });
-        group.append(h("h3", { text: day }));
-        results.append(group);
-      }
-      const row = h("div", { class: "slot" });
-      row.append(h("span", { class: "slot-time", text: time + " – " + endTime }));
-      row.append(h("span", { class: "sub", text: tz }));
-      if (group) group.append(row);
-    });
-  }
-
-  Promise.all([getJson("/api/people"), getJson("/api/groups")])
-    .then((pair) => {
-      people = Array.isArray(pair[0].people) ? pair[0].people : [];
-      groups = Array.isArray(pair[1].groups) ? pair[1].groups : [];
-      groups.forEach((group) => {
-        groupEl.append(h("option", { value: group.id, text: group.name || "Group" }));
-      });
-      groupEl.addEventListener("change", renderPeople);
-      renderPeople();
-    })
-    .catch((err) => {
-      setBanner(msg, "bad", err.message || "Could not load people");
-    });
-
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const startDate = start.value;
-    const endDate = end.value;
-    const span = inclusiveDaySpan(startDate, endDate);
-    if (span == null) {
-      setBanner(msg, "bad", "Choose a start date on or before the end date.");
-      return;
-    }
-    if (span > 14) {
-      setBanner(msg, "bad", "Choose 14 days or fewer.");
-      return;
-    }
-    const duration = Number(document.getElementById("duration").value);
-    const winStart = parseTimeToMinutes(document.getElementById("window-start").value);
-    const winEnd = parseTimeToMinutes(document.getElementById("window-end").value);
-    if (winStart == null || winEnd == null || winEnd <= winStart) {
-      setBanner(msg, "bad", "The daily window needs an end time after the start.");
-      return;
-    }
-    const members = memberSet();
-    const userIds = [];
-    peopleEl.querySelectorAll("input[type=checkbox]").forEach((box) => {
-      if (!box.checked || box.disabled) return;
-      const id = box.getAttribute("data-user-id");
-      if (id && !members[id]) userIds.push(id);
-    });
-    const groupId = groupEl.value || "";
-    if (!groupId && userIds.length === 0) {
-      setBanner(msg, "bad", "Select at least one person or a saved group.");
-      return;
-    }
-    const picked = people.filter((p) => members[p.id] || userIds.indexOf(p.id) !== -1);
-    const missing = picked.filter((p) => p.token_status !== "ok");
-    if (missing.length) {
-      setBanner(
-        msg,
-        "bad",
-        "Calendar not connected for " + missing.map((p) => p.email).join(", ") + ".",
-      );
-      return;
-    }
-    let rangeStart = "";
-    let rangeEnd = "";
-    try {
-      rangeStart = zonedWallTimeToIso(startDate, 0, 0, tz);
-      rangeEnd = zonedWallTimeToIso(addDays(endDate, 1), 0, 0, tz);
-    } catch (err) {
-      setBanner(msg, "bad", "Those dates could not be read.");
-      return;
-    }
-    if (Date.parse(rangeEnd) - Date.parse(rangeStart) > 14 * 86400000) {
-      setBanner(msg, "bad", "That range is longer than 14 days in Central Time. Shorten it by a day.");
-      return;
-    }
-    const button = form.querySelector("button[type=submit]");
-    button.disabled = true;
-    clear(results);
-    setBanner(msg, "", "");
-    const payload = {
-      userIds: userIds,
-      rangeStart: rangeStart,
-      rangeEnd: rangeEnd,
-      durationMinutes: duration,
-      windowStartMinutes: winStart,
-      windowEndMinutes: winEnd,
-    };
-    if (groupId) payload.groupId = groupId;
-    send("POST", "/api/slots", payload)
-      .then((data) => {
-        renderSlots(data);
-        const count = data.slots ? data.slots.length : 0;
-        if (!count) {
-          setBanner(msg, "", "No overlapping free time in that window. Try more days or fewer people.");
-        } else if (count >= 50) {
-          setBanner(msg, "", "Showing 50 available times. Narrow the window for a shorter list.");
-        }
-      })
-      .catch((err) => {
-        setBanner(msg, "bad", err.message || "Could not load available times");
-      })
-      .then(() => {
-        button.disabled = false;
       });
   });
 }
@@ -1295,10 +1352,9 @@ function initAdmin() {
   });
 }
 
-if (page === "home" || page === "delete") initHome();
+if (page === "home" || page === "calendars" || page === "delete") initHome();
 if (page === "home") initHeat();
 if (page === "calendars") initCalendars();
-if (page === "times") initTimes();
 if (page === "admin") initAdmin();
 })();`;
 }

@@ -2,6 +2,7 @@ import type { BusyInterval, Env, UserRow } from "./types";
 import {
   buildGoogleAuthUrl,
   CALENDAR_SCOPES,
+  tokenCanCreateEvents,
   exchangeCode,
   fetchUserInfo,
   IDENTITY_SCOPES,
@@ -20,6 +21,7 @@ import {
 import {
   deleteRefreshToken,
   loadRefreshToken,
+  loadTokenScopes,
   storeRefreshToken,
 } from "./db/tokens";
 import {
@@ -32,6 +34,7 @@ import { findSharedSlots } from "./freebusy/intersect";
 import { buildAvailabilityGrid, includedDayKeys } from "./freebusy/heatmap";
 import { getHeatmapSettings } from "./db/heatmap-settings";
 import { queryFreeBusy, refreshAccessToken } from "./calendar/freebusy-client";
+import { createCalendarEvent, deleteCalendarEvent } from "./calendar/events";
 import {
   defaultCalendarSelection,
   listCalendars,
@@ -53,7 +56,6 @@ import {
 } from "./middleware/session";
 import {
   adminPage,
-  availableTimesPage,
   calendarsPage,
   deletePage,
   escapeHtml,
@@ -227,8 +229,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
         title: "Calendar optional",
         active: "calendars",
         heading: "Guests do not need a calendar",
-        body: `<p>You can use Available times for hosts and producers without connecting Google Calendar.</p>
-         <p><a class="btn btn-primary" href="/app">Available times</a></p>`,
+        body: `<p>You can use Home to see when hosts and producers are free without connecting Google Calendar.</p>
+         <p><a class="btn btn-primary" href="/">Home</a></p>`,
       });
     }
     const state = newOAuthState();
@@ -418,12 +420,15 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/api/me" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
+    const scopes = await loadTokenScopes(env.DB, authed.user.id);
     return jsonOk({
       email: authed.user.email,
       role: authed.user.role,
       token_status: authed.user.token_status,
       guest: authed.user.role === "guest",
       calendarRequired: authed.user.role !== "guest",
+      canCreateEvents:
+        authed.user.token_status === "ok" && tokenCanCreateEvents(scopes),
       csrf: authed.csrfSecret,
     });
   }
@@ -672,6 +677,140 @@ async function handle(request: Request, env: Env): Promise<Response> {
     });
   }
 
+  if (path === "/api/events" && request.method === "POST") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    if (csrfErr) return csrfErr;
+
+    const body = (await request.json()) as {
+      title?: string;
+      ranges?: Array<{ start?: string; end?: string }>;
+      userIds?: string[];
+    };
+    const title = body.title?.trim() ?? "";
+    if (!title || title.length > 140) {
+      return jsonError(400, "title required");
+    }
+    const ranges = body.ranges ?? [];
+    if (!ranges.length || ranges.length > 8) {
+      return jsonError(400, "select one or more time ranges");
+    }
+    for (const range of ranges) {
+      const start = new Date(range.start ?? "");
+      const end = new Date(range.end ?? "");
+      if (!(start < end)) return jsonError(400, "bad time range");
+      if (end.getTime() - start.getTime() > 12 * 3600_000) {
+        return jsonError(400, "each event must be 12 hours or less");
+      }
+    }
+    const userIds = [...new Set((body.userIds ?? []).filter(Boolean))];
+    if (!userIds.length) return jsonError(400, "select at least one person");
+
+    if (authed.user.token_status !== "ok") {
+      return jsonError(400, "Connect Google Calendar before creating an event.");
+    }
+    const scopes = await loadTokenScopes(env.DB, authed.user.id);
+    if (!tokenCanCreateEvents(scopes)) {
+      return Response.json(
+        {
+          error:
+            "Reconnect Google Calendar to create events. The current connection can only read free/busy.",
+          reconnect: true,
+        },
+        { status: 403 },
+      );
+    }
+
+    const attendees: string[] = [];
+    for (const uid of userIds) {
+      const person = await getUserById(env.DB, uid);
+      if (!person) return jsonError(400, `unknown user: ${uid}`);
+      const email = person.email?.trim();
+      if (!email) return jsonError(400, "a selected person has no email");
+      if (normalizeEmail(email) === normalizeEmail(authed.user.email)) continue;
+      if (!attendees.some((existing) => normalizeEmail(existing) === normalizeEmail(email))) {
+        attendees.push(email);
+      }
+    }
+
+    const refresh = await loadRefreshToken(
+      env.DB,
+      authed.user.id,
+      env.TOKEN_ENCRYPTION_KEY,
+    );
+    if (!refresh) {
+      return jsonError(400, "Connect Google Calendar before creating an event.");
+    }
+    const access = await refreshAccessToken(
+      env.GOOGLE_CLIENT_ID,
+      env.GOOGLE_CLIENT_SECRET,
+      refresh,
+    );
+
+    const created: Array<{ id: string; htmlLink: string | null; start: string; end: string }> = [];
+    try {
+      for (const range of ranges) {
+        const event = await createCalendarEvent(access, {
+          title,
+          start: new Date(range.start ?? "").toISOString(),
+          end: new Date(range.end ?? "").toISOString(),
+          attendeeEmails: attendees,
+          timeZone: env.DEFAULT_TIMEZONE,
+        });
+        created.push({
+          id: event.id,
+          htmlLink: event.htmlLink,
+          start: new Date(range.start ?? "").toISOString(),
+          end: new Date(range.end ?? "").toISOString(),
+        });
+      }
+    } catch (err) {
+      const leftover: string[] = [];
+      for (const event of created) {
+        try {
+          await deleteCalendarEvent(access, event.id);
+        } catch {
+          if (event.htmlLink) leftover.push(event.htmlLink);
+        }
+      }
+      if (err instanceof Error && err.message === "reconnect") {
+        return Response.json(
+          {
+            error:
+              "Reconnect Google Calendar to create events. The current connection can only read free/busy.",
+            reconnect: true,
+            leftover,
+          },
+          { status: 403 },
+        );
+      }
+      return Response.json(
+        {
+          error: leftover.length
+            ? "Could not create every event. Remove the ones already added in Google Calendar and try again."
+            : "Could not create every event. Nothing was left on the calendar.",
+          leftover,
+        },
+        { status: 502 },
+      );
+    }
+
+    await writeAudit(env, {
+      actorUserId: authed.user.id,
+      action: "create_events",
+      meta: { count: created.length, attendees: attendees.length },
+    });
+
+    return jsonOk({
+      created: created.map((event) => ({
+        htmlLink: event.htmlLink,
+        start: event.start,
+        end: event.end,
+      })),
+    });
+  }
+
   if (path === "/api/people" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
@@ -688,9 +827,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/app" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
-    return availableTimesPage(toViewer(env, authed.user));
+    return new Response(null, { status: 302, headers: { location: "/" } });
   }
 
   if (path === "/admin" && request.method === "GET") {

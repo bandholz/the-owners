@@ -102,15 +102,16 @@ describe("staging screens", () => {
     const text = await html("/");
     expect(text).toContain("Sign in with Google");
     expect(text).toContain("Invite-only");
-    expect(text).toContain("Available times are shown in Central Time");
+    expect(text).toContain("Times are shown in Central Time");
     expect(text).not.toContain("nav-signout");
   });
 
   it("renders home chrome for a signed-in host", async () => {
     const text = await html("/", user());
     expect(text).toContain('id="nav-home"');
-    expect(text).toContain('id="nav-times"');
-    expect(text).toContain(">Available times<");
+    expect(text).not.toContain('id="nav-times"');
+    expect(text).not.toContain(">Available times<");
+    expect(text).not.toContain('id="delete-account"');
     expect(text).toContain('id="nav-calendars"');
     expect(text).toContain('id="nav-signout"');
     expect(text).toContain('href="/auth/logout"');
@@ -135,6 +136,9 @@ describe("staging screens", () => {
     expect(text).toContain("/api/availability");
     expect(text).toContain("five business days");
     expect(text).toContain("9:00 AM–5:00 PM");
+    expect(text).toContain('id="heat-title"');
+    expect(text).toContain('id="heat-confirm-go"');
+    expect(text).toContain("Create on my calendar");
     expect(text).toContain('id="heat-rules"');
     expect(text).toContain("/api/heatmap-settings");
   });
@@ -166,17 +170,7 @@ describe("staging screens", () => {
     expect(text).toContain("without connecting a calendar");
     expect(text).toContain('data-guest="true"');
     expect(text).not.toContain('id="nav-admin"');
-    const times = await html(
-      "/app",
-      user({ role: "guest", token_status: "none", name: "Guest Person" }),
-    );
-    expect(times).toContain("<h1>Available times</h1>");
-    expect(times).toContain('data-guest="true"');
-    expect(times).toContain("Guests can look up available times");
-    expect(times).toContain("/api/slots");
-    expect(times).toContain("/api/people");
-    expect(times).toContain("/api/groups");
-    expect(times).toContain("Show available times");
+    expect(text).toContain('id="heat-app"');
   });
 
   it("renders the calendar picker for a connected user", async () => {
@@ -191,6 +185,9 @@ describe("staging screens", () => {
     expect(text).toContain("x-csrf-token");
     expect(text).toContain('aria-current="page"');
     expect(text).toContain('href="/calendars"');
+    expect(text).toContain('id="disconnect-card"');
+    expect(text).toContain('id="delete-account"');
+    expect(text).not.toContain('id="nav-times"');
   });
 
   it("does not ask a guest to connect a calendar", async () => {
@@ -200,26 +197,21 @@ describe("staging screens", () => {
     );
     expect(text).toContain('data-state="guest"');
     expect(text).toContain("No calendar needed");
-    expect(text).toContain('href="/app"');
+    expect(text).toContain('href="/"');
+    expect(text).toContain('id="disconnect-card"');
   });
 
   it("points a host without a calendar at connect", async () => {
     const text = await html("/calendars", user({ token_status: "none" }));
     expect(text).toContain('data-state="connect"');
     expect(text).toContain('href="/auth/google/calendar/start"');
+    expect(text).toContain('id="disconnect-card"');
   });
 
-  it("renders available times for a host", async () => {
-    const text = await html("/app", user());
-    expect(text).toContain("<h1>Available times</h1>");
-    expect(text).toContain('id="times-form"');
-    expect(text).toContain('id="group-id"');
-    expect(text).toContain('id="people-list"');
-    expect(text).toContain("POST");
-    expect(text).toContain("/api/slots");
-    expect(text).toContain("America/Chicago");
-    const nav = text.indexOf('id="nav-times"');
-    expect(text.slice(nav, nav + 180)).toContain('aria-current="page"');
+  it("sends the old available-times path to Home", async () => {
+    const res = await worker.fetch(new Request(`${BASE}/app`), env());
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
   });
 
   it("keeps admin navigation off the host chrome and renders admin tools for an admin", async () => {
@@ -269,14 +261,13 @@ describe("staging screens", () => {
     );
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toContain("Available times");
+    expect(text).toContain("Home");
     expect(text.toLowerCase()).not.toContain("find a time");
-    expect(text).toContain('href="/app"');
+    expect(text).toContain('href="/"');
+    expect(text).not.toContain('id="nav-times"');
   });
 
   it("still refuses unsigned app and admin pages", async () => {
-    const app = await worker.fetch(new Request(`${BASE}/app`), env());
-    expect(app.status).toBe(401);
     const admin = await worker.fetch(new Request(`${BASE}/admin`), env());
     expect(admin.status).toBe(401);
     const grid = await worker.fetch(
@@ -284,6 +275,11 @@ describe("staging screens", () => {
       env(),
     );
     expect(grid.status).toBe(401);
+    const events = await worker.fetch(
+      new Request(`${BASE}/api/events`, { method: "POST" }),
+      env(),
+    );
+    expect(events.status).toBe(401);
     const settings = await worker.fetch(
       new Request(`${BASE}/api/heatmap-settings`),
       env(),
@@ -321,6 +317,18 @@ describe("staging screens", () => {
     );
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "csrf" });
+    const events = await worker.fetch(
+      new Request(`${BASE}/api/events`, {
+        method: "POST",
+        headers: {
+          cookie: "ots_session=sess-1",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }),
+      authed(user()),
+    );
+    expect(events.status).toBe(403);
   });
 });
 
@@ -336,6 +344,8 @@ describe("page script time helpers", () => {
     expect(script).toContain("business days");
     expect(script).toContain("/api/heatmap-settings");
     expect(script).toContain("/api/admin/heatmap-settings");
+    expect(script).toContain("/api/events");
+    expect(script).toContain("Reconnect Google Calendar");
     expect(script).not.toContain("heat-window-start");
     expect(script).toContain('names("Free"');
     expect(script).toContain('names("Busy"');

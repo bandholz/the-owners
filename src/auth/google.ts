@@ -9,7 +9,16 @@ export const IDENTITY_SCOPES = ["openid", "email", "profile"];
 export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.freebusy",
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+  "https://www.googleapis.com/auth/calendar.events.owned",
 ];
+
+/** Create events on calendars the user owns, including invites. */
+export const EVENT_CREATE_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events.owned";
+
+export function tokenCanCreateEvents(scopes: string[]): boolean {
+  return scopes.includes(EVENT_CREATE_SCOPE);
+}
 
 export function buildGoogleAuthUrl(opts: {
   clientId: string;

@@ -11,6 +11,7 @@ describe("heatmap settings", () => {
       showWeekends: false,
       windowStartMinutes: 9 * 60,
       windowEndMinutes: 17 * 60,
+      defaultGroupName: "Hosts",
     });
   });
 
@@ -28,8 +29,17 @@ describe("heatmap settings", () => {
         showWeekends: true,
         windowStartMinutes: 480,
         windowEndMinutes: 18 * 60,
+        defaultGroupName: "Hosts",
       },
     });
+    const blank = normalizeHeatmapSettings({
+      dayCount: 5,
+      showWeekends: false,
+      windowStartMinutes: 9 * 60,
+      windowEndMinutes: 17 * 60,
+      defaultGroupName: "",
+    });
+    expect(blank.ok && blank.settings.defaultGroupName).toBe("");
     expect(
       normalizeHeatmapSettings({
         dayCount: 0,

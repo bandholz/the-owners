@@ -162,6 +162,7 @@ export async function handleAdmin(
       showWeekends?: unknown;
       windowStartMinutes?: unknown;
       windowEndMinutes?: unknown;
+      defaultGroupName?: unknown;
     };
     const parsed = normalizeHeatmapSettings(body);
     if (!parsed.ok) return jsonError(400, parsed.error);
@@ -169,7 +170,7 @@ export async function handleAdmin(
       await saveHeatmapSettings(env.DB, parsed.settings, authed.user.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
-      if (message.includes("no such table")) {
+      if (message.includes("no such table") || message.includes("no such column")) {
         return jsonError(
           503,
           "heatmap settings are not available until the database migration is applied",

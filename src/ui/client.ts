@@ -266,10 +266,12 @@ function initHeat() {
     showWeekends: false,
     windowStartMinutes: 9 * 60,
     windowEndMinutes: 17 * 60,
+    defaultGroupName: "Hosts",
   };
   let people = [];
   let groups = [];
   let pickedIds = {};
+  let groupIds = {};
   let ranges = [];
   let drag = null;
   let heatTimer = null;
@@ -308,6 +310,9 @@ function initHeat() {
     if (data && Number.isInteger(data.windowEndMinutes)) {
       heatSettings.windowEndMinutes = data.windowEndMinutes;
     }
+    if (data && typeof data.defaultGroupName === "string") {
+      heatSettings.defaultGroupName = data.defaultGroupName;
+    }
     const span = heatSettings.showWeekends ? "days" : "weekdays";
     const weekend = heatSettings.showWeekends ? "including weekends" : "weekdays only";
     if (rulesEl) {
@@ -333,12 +338,17 @@ function initHeat() {
     }
   }
 
+  function selectedGroups() {
+    return groups.filter((group) => groupIds[group.id]);
+  }
+
   function memberSet() {
-    const group = groups.find((g) => g.id === groupEl.value);
     const set = {};
-    const ids = group && Array.isArray(group.memberIds) ? group.memberIds : [];
-    ids.forEach((id) => {
-      set[id] = true;
+    selectedGroups().forEach((group) => {
+      const ids = Array.isArray(group.memberIds) ? group.memberIds : [];
+      ids.forEach((id) => {
+        set[id] = true;
+      });
     });
     return set;
   }
@@ -346,29 +356,50 @@ function initHeat() {
   function renderPeople() {
     const members = memberSet();
     clear(peopleEl);
+    selectedGroups().forEach((group) => {
+      const name = group.name || "Group";
+      const chip = h("span", { class: "chip" });
+      chip.append(h("span", { text: name + " (Group)" }));
+      const remove = h("button", {
+        type: "button",
+        text: "×",
+        "aria-label": "Remove " + name,
+      });
+      remove.addEventListener("click", () => {
+        delete groupIds[group.id];
+        renderPeople();
+        scheduleHeat();
+      });
+      chip.append(remove);
+      peopleEl.append(chip);
+    });
     people.forEach((person) => {
-      const inGroup = !!members[person.id];
-      if (!inGroup && !pickedIds[person.id]) return;
+      if (!pickedIds[person.id]) return;
       const display = person.name || person.email || "Person";
       const chip = h("span", { class: "chip" });
       chip.append(h("span", { text: display }));
-      if (inGroup) {
-        chip.append(h("span", { class: "sub", text: "Group" }));
-      } else {
-        const remove = h("button", {
-          type: "button",
-          text: "×",
-          "aria-label": "Remove " + display,
-        });
-        remove.addEventListener("click", () => {
-          delete pickedIds[person.id];
-          renderPeople();
-          scheduleHeat();
-        });
-        chip.append(remove);
-      }
+      const remove = h("button", {
+        type: "button",
+        text: "×",
+        "aria-label": "Remove " + display,
+      });
+      remove.addEventListener("click", () => {
+        delete pickedIds[person.id];
+        renderPeople();
+        scheduleHeat();
+      });
+      chip.append(remove);
       peopleEl.append(chip);
     });
+    if (groupEl) {
+      while (groupEl.options.length > 1) groupEl.remove(1);
+      groupEl.options[0].textContent = "Add a group";
+      groups.forEach((group) => {
+        if (groupIds[group.id]) return;
+        groupEl.append(h("option", { value: group.id, text: group.name || "Group" }));
+      });
+      groupEl.value = "";
+    }
     if (!personEl) return;
     while (personEl.options.length > 1) personEl.remove(1);
     personEl.options[0].textContent = people.length ? "Add a person" : "No one invited";
@@ -387,12 +418,12 @@ function initHeat() {
   function selectedIds() {
     const members = memberSet();
     const userIds = [];
+    Object.keys(members).forEach((id) => userIds.push(id));
     Object.keys(pickedIds).forEach((id) => {
       if (!members[id]) userIds.push(id);
     });
-    const groupId = groupEl.value || "";
     const picked = people.filter((person) => members[person.id] || pickedIds[person.id]);
-    return { groupId: groupId, userIds: userIds, picked: picked };
+    return { userIds: userIds, picked: picked };
   }
 
   function setLegend(total) {
@@ -439,13 +470,20 @@ function initHeat() {
     }
     names("Free", free, "is-free");
     names("Busy", busy, "is-busy");
-    const host = document.getElementById("heat-wrap").getBoundingClientRect();
+    hover.style.position = "fixed";
     const rect = anchor.getBoundingClientRect();
-    const width = 230;
-    let left = rect.right - host.left + 8;
-    if (rect.right + width > host.right) left = rect.left - host.left - width - 8;
-    hover.style.left = Math.max(0, left) + "px";
-    hover.style.top = Math.max(0, rect.top - host.top) + "px";
+    const margin = 8;
+    const box = hover.getBoundingClientRect();
+    let top = rect.bottom + margin;
+    let left = rect.left;
+    if (top + box.height > window.innerHeight - margin) {
+      top = rect.top - box.height - margin;
+    }
+    if (left + box.width > window.innerWidth - margin) {
+      left = window.innerWidth - box.width - margin;
+    }
+    hover.style.left = Math.max(margin, left) + "px";
+    hover.style.top = Math.max(margin, top) + "px";
   }
 
   function renderGrid(data) {
@@ -764,13 +802,24 @@ function initHeat() {
     });
   }
 
+  function clearBoard(hint) {
+    if (heatAbort) heatAbort.abort();
+    heatAbort = null;
+    ranges = [];
+    drag = null;
+    clear(gridEl);
+    hideHover();
+    const confirm = document.getElementById("heat-confirm");
+    if (confirm) confirm.hidden = true;
+    updateCreateBar();
+    if (hint) gridEl.append(h("p", { class: "hint", text: hint }));
+  }
+
   function loadHeat() {
     const sel = selectedIds();
     setLegend(sel.picked.length);
-    if (!sel.groupId && sel.userIds.length === 0) {
-      clear(gridEl);
-      hideHover();
-      gridEl.append(h("p", { class: "hint", text: "Select people or a saved group." }));
+    if (!sel.picked.length) {
+      clearBoard("Select people or a saved group.");
       setBanner(msg, "", "");
       return;
     }
@@ -809,11 +858,10 @@ function initHeat() {
     const signal = heatAbort.signal;
     setBanner(msg, "", "");
     const payload = {
-      userIds: sel.userIds,
+      userIds: sel.picked.map((person) => person.id),
       rangeStart: rangeStart,
       rangeEnd: rangeEnd,
     };
-    if (sel.groupId) payload.groupId = sel.groupId;
     loadMe(false).then((me) => fetch("/api/availability", {
       method: "POST",
       signal: signal,
@@ -829,6 +877,11 @@ function initHeat() {
     }))).catch((err) => {
       if (err && err.name === "AbortError") return;
       if (signal.aborted) return;
+      clear(gridEl);
+      hideHover();
+      ranges = [];
+      drag = null;
+      updateCreateBar();
       setBanner(msg, "bad", (err && err.message) || "Could not load availability");
     });
   }
@@ -838,12 +891,18 @@ function initHeat() {
     heatTimer = setTimeout(loadHeat, 200);
   }
 
-  [start, end, groupEl].forEach((el) => {
-    el.addEventListener("change", () => {
-      if (el === groupEl) renderPeople();
+  [start, end].forEach((el) => {
+    el.addEventListener("change", scheduleHeat);
+  });
+  if (groupEl) {
+    groupEl.addEventListener("change", () => {
+      const id = groupEl.value;
+      if (!id) return;
+      groupIds[id] = true;
+      renderPeople();
       scheduleHeat();
     });
-  });
+  }
   if (personEl) {
     personEl.addEventListener("change", () => {
       const id = personEl.value;
@@ -881,12 +940,17 @@ function initHeat() {
       applyHeatSettings(triple[0]);
       people = Array.isArray(triple[1].people) ? triple[1].people : [];
       groups = Array.isArray(triple[2].groups) ? triple[2].groups : [];
-      groups.forEach((group) => {
-        groupEl.append(h("option", { value: group.id, text: group.name || "Group" }));
-      });
-      people.forEach((person) => {
-        if (person.role === "host") pickedIds[person.id] = true;
-      });
+      const wanted = (heatSettings.defaultGroupName || "").trim().toLowerCase();
+      const match = wanted
+        ? groups.find((group) => (group.name || "").trim().toLowerCase() === wanted)
+        : null;
+      if (match) {
+        groupIds[match.id] = true;
+      } else if (wanted === "hosts") {
+        people.forEach((person) => {
+          if (person.role === "host") pickedIds[person.id] = true;
+        });
+      }
       renderPeople();
       scheduleHeat();
     })
@@ -1015,7 +1079,10 @@ function initAdmin() {
     const weekendInput = document.getElementById("heat-show-weekends");
     const startInput = document.getElementById("heat-admin-start");
     const endInput = document.getElementById("heat-admin-end");
-    getJson("/api/heatmap-settings").then((data) => {
+    const defaultInput = document.getElementById("heat-default-group");
+    Promise.all([getJson("/api/heatmap-settings"), getJson("/api/groups")]).then((pair) => {
+      const data = pair[0];
+      const groupData = pair[1];
       if (dayInput && Number.isInteger(data.dayCount)) dayInput.value = String(data.dayCount);
       if (weekendInput) weekendInput.value = data.showWeekends ? "yes" : "no";
       if (startInput && Number.isInteger(data.windowStartMinutes)) {
@@ -1023,6 +1090,23 @@ function initAdmin() {
       }
       if (endInput && Number.isInteger(data.windowEndMinutes)) {
         endInput.value = String(data.windowEndMinutes);
+      }
+      if (defaultInput) {
+        const current = typeof data.defaultGroupName === "string" ? data.defaultGroupName : "Hosts";
+        const names = [];
+        (groupData.groups || []).forEach((group) => {
+          const name = group.name || "";
+          if (name && names.indexOf(name) === -1) names.push(name);
+        });
+        if (current && names.indexOf(current) === -1) names.unshift(current);
+        while (defaultInput.options.length) defaultInput.remove(0);
+        defaultInput.append(h("option", { value: "", text: "No one" }));
+        names.forEach((name) => {
+          const opt = h("option", { value: name, text: name });
+          if (name === current) opt.selected = true;
+          defaultInput.append(opt);
+        });
+        defaultInput.value = current;
       }
     }).catch((err) => {
       setBanner(settingsMsg, "bad", err.message || "Could not load heatmap settings");
@@ -1036,6 +1120,7 @@ function initAdmin() {
         showWeekends: weekendInput.value === "yes",
         windowStartMinutes: Number(startInput.value),
         windowEndMinutes: Number(endInput.value),
+        defaultGroupName: defaultInput ? defaultInput.value : "Hosts",
       }).then(() => {
         setBanner(settingsMsg, "ok", "Saved. Home uses these rules for everyone.");
       }).catch((err) => {

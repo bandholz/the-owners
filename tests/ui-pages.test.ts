@@ -246,6 +246,7 @@ describe("staging screens", () => {
     expect(text).toContain('id="heat-show-weekends"');
     expect(text).toContain('id="heat-admin-start"');
     expect(text).toContain('id="heat-admin-end"');
+    expect(text).toContain('id="heat-default-group"');
     expect(text).toContain("Include Saturday and Sunday");
     expect(text).toContain("Save heatmap");
     expect(text).toContain("/api/admin/heatmap-settings");
@@ -300,6 +301,7 @@ describe("staging screens", () => {
       showWeekends: false,
       windowStartMinutes: 9 * 60,
       windowEndMinutes: 17 * 60,
+      defaultGroupName: "Hosts",
     });
   });
 
@@ -340,7 +342,9 @@ describe("page script time helpers", () => {
     expect(script).toContain("/api/availability");
     expect(script).toContain("heat-person");
     expect(script).toContain("Add a person");
-    expect(script).toContain('person.role === "host"');
+    expect(script).toContain("(Group)");
+    expect(script).toContain("Add a group");
+    expect(script).toContain("defaultGroupName");
     expect(script).toContain("business days");
     expect(script).toContain("/api/heatmap-settings");
     expect(script).toContain("/api/admin/heatmap-settings");

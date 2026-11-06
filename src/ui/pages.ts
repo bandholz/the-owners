@@ -105,7 +105,7 @@ export function homePage(opts: {
         </label>
         <label class="field">Group
           <select id="heat-group">
-            <option value="">No saved group</option>
+            <option value="">Add a group</option>
           </select>
         </label>
         <label class="field">People
@@ -142,8 +142,8 @@ export function homePage(opts: {
       </div>
       <div id="heat-wrap" class="heat-wrap">
         <div id="heat-grid"><p class="hint">Select people or a saved group.</p></div>
-        <div id="heat-hover" class="heat-hover" hidden></div>
       </div>
+      <div id="heat-hover" class="heat-hover" hidden></div>
     </section>`;
 
   return renderApp({
@@ -261,6 +261,13 @@ export function adminPage(viewer: Viewer): Response {
           <label class="field">Until
             <select id="heat-admin-end">${minuteOptions(17 * 60)}</select>
           </label>
+          <label class="field">Default selection
+            <select id="heat-default-group">
+              <option value="Hosts">Hosts</option>
+              <option value="">No one</option>
+            </select>
+          </label>
+          <p class="hint">Home opens with this saved group selected. Hosts is the default until you change it.</p>
           <button class="btn btn-primary" type="submit">Save heatmap</button>
         </form>
         <div id="heatmap-settings-msg" class="banner" hidden></div>

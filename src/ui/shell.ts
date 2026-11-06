@@ -279,8 +279,8 @@ a { color: inherit; }
 .field input, .field select, .subcard input, .person select, .check-row select {
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  padding: 8px 10px;
-  background: #fff;
+  padding: 8px 40px 8px 10px;
+  background-color: #fff;
   font-weight: 500;
 }
 .form-row {
@@ -381,12 +381,26 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 .heat-controls .field { flex: 0 1 auto; font-size: 12px; gap: 3px; }
-.heat-controls input,
-.heat-controls select {
+.heat-controls input {
   padding: 4px 8px;
   font-size: 13px;
   width: 10.5rem;
   max-width: 100%;
+}
+.heat-controls select {
+  padding: 4px 40px 4px 8px;
+  font-size: 13px;
+  width: 10.5rem;
+  max-width: 100%;
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%231a1a1a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 40px;
 }
 .heat-legend {
   display: flex;
@@ -458,8 +472,8 @@ a { color: inherit; }
 .heat-confirm ul { margin: 6px 0 10px; padding-left: 18px; }
 #heat-wrap { touch-action: none; user-select: none; }
 .heat-hover {
-  position: absolute;
-  z-index: 4;
+  position: fixed;
+  z-index: 40;
   background: #fff;
   color: #1a1a1a;
   border: 1px solid #1a1a1a;

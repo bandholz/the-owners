@@ -109,12 +109,14 @@ async function handle(request: Request, env: Env): Promise<Response> {
       state,
       nonce: newOAuthState(),
     });
-    const res = Response.redirect(loc, 302);
-    res.headers.append(
+    // Response.redirect() headers are immutable (compat date 2026-11-05),
+    // so appending Set-Cookie throws and the top-level catch returns 500.
+    const headers = new Headers({ location: loc });
+    headers.append(
       "set-cookie",
       `ots_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
     );
-    return res;
+    return new Response(null, { status: 302, headers });
   }
 
   if (path === "/auth/google/callback" && request.method === "GET") {
@@ -194,12 +196,13 @@ async function handle(request: Request, env: Env): Promise<Response> {
       accessType: "offline",
       prompt: "consent",
     });
-    const res = Response.redirect(loc, 302);
-    res.headers.append(
+    // Same immutable-header constraint as /auth/google/start.
+    const headers = new Headers({ location: loc });
+    headers.append(
       "set-cookie",
       `ots_cal_state=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
     );
-    return res;
+    return new Response(null, { status: 302, headers });
   }
 
   if (path === "/auth/google/calendar/callback" && request.method === "GET") {

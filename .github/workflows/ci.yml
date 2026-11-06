@@ -1,0 +1,85 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run secret-scan
+
+  # Deploy jobs intentionally gated. No Cloudflare resources from CI until Eric sets secrets + flags.
+  deploy-staging:
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_STAGING == 'true'
+    needs: [typecheck, test, secret-scan]
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Deploy staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: d9eebda3928171a0baf30eaffb2c03be
+        run: npx wrangler deploy --env staging
+
+  deploy-production:
+    if: startsWith(github.ref, 'refs/tags/v') && vars.ALLOW_PRODUCTION_DEPLOY == 'true'
+    needs: [typecheck, test, secret-scan]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Refuse unless explicitly allowed
+        run: |
+          if [ "${{ vars.ALLOW_PRODUCTION_DEPLOY }}" != "true" ]; then
+            echo "Production deploy blocked"
+            exit 1
+          fi
+      - name: Deploy production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: d9eebda3928171a0baf30eaffb2c03be
+        run: npx wrangler deploy --env production

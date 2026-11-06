@@ -1,0 +1,27 @@
+name: backup-d1
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC ≈ 00:00 America/Chicago (CST)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: vars.RUN_D1_BACKUP == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Export D1 (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: d9eebda3928171a0baf30eaffb2c03be
+          BACKUP_ENV: staging
+        run: npx tsx scripts/backup-d1.ts
+      # Upload to R2 / artifact retention wired after Eric creates backup bucket.

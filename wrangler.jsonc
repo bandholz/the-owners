@@ -1,0 +1,74 @@
+/**
+ * Local / CI config only. database_id values are PLACEHOLDERS.
+ * Do not run `wrangler d1 create` or `wrangler deploy` until Eric approves staging.
+ * Production env is present for structure but CI must keep ALLOW_PRODUCTION_DEPLOY unset.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "operators-scheduler",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-05",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_NAME": "Operators: The Owners Scheduler",
+    "DEFAULT_TIMEZONE": "America/Chicago",
+    "ENVIRONMENT": "local",
+    "ALLOW_PRODUCTION": "false"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "operators-scheduler-local",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "preview_database_id": "operators-scheduler-local-preview",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "operators-scheduler-staging",
+      "vars": {
+        "APP_NAME": "Operators: The Owners Scheduler",
+        "DEFAULT_TIMEZONE": "America/Chicago",
+        "ENVIRONMENT": "staging",
+        "ALLOW_PRODUCTION": "false"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "operators-scheduler-staging",
+          "database_id": "REPLACE_AFTER_ERIC_APPROVES_STAGING_D1",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "routes": [
+        { "pattern": "scheduler-staging.bandholz.com", "custom_domain": true }
+      ]
+    },
+    "production": {
+      "name": "operators-scheduler",
+      "vars": {
+        "APP_NAME": "Operators: The Owners Scheduler",
+        "DEFAULT_TIMEZONE": "America/Chicago",
+        "ENVIRONMENT": "production",
+        "ALLOW_PRODUCTION": "false"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "operators-scheduler-prod",
+          "database_id": "REPLACE_AFTER_ERIC_APPROVES_PROD_D1",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "routes": [
+        { "pattern": "scheduler.bandholz.com", "custom_domain": true }
+      ]
+    }
+  }
+}

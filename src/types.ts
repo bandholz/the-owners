@@ -12,6 +12,13 @@ export interface Env {
   TOKEN_ENCRYPTION_KEY: string;
   SESSION_SECRET: string;
   APP_BASE_URL: string;
+  /** Set "true" to enable Access policy PUT on invite/remove */
+  CF_ACCESS_SYNC_ENABLED?: string;
+  CF_API_TOKEN?: string;
+  CF_ACCOUNT_ID?: string;
+  CF_ACCESS_APP_ID?: string;
+  CF_ACCESS_POLICY_ID?: string;
+  CF_ACCESS_POLICY_NAME?: string;
 }
 
 export interface UserRow {
@@ -46,9 +53,7 @@ export interface FindSlotsInput {
   rangeStart: Date;
   rangeEnd: Date;
   durationMinutes: number;
-  /** Minutes from midnight CT for daily window start, inclusive */
   windowStartMinutes: number;
-  /** Minutes from midnight CT for daily window end, exclusive */
   windowEndMinutes: number;
   stepMinutes?: number;
   maxSlots?: number;

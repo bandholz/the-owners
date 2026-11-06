@@ -8,7 +8,7 @@ const GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo";
 export const IDENTITY_SCOPES = ["openid", "email", "profile"];
 export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.freebusy",
-  // calendarlist.readonly gated by Eric decision; included behind flag at runtime later
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 ];
 
 export function buildGoogleAuthUrl(opts: {
@@ -65,7 +65,12 @@ export async function exchangeCode(
 export async function fetchUserInfo(
   accessToken: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ sub: string; email: string; email_verified: boolean; name?: string }> {
+): Promise<{
+  sub: string;
+  email: string;
+  email_verified: boolean;
+  name?: string;
+}> {
   const res = await fetchImpl(GOOGLE_USERINFO, {
     headers: { authorization: `Bearer ${accessToken}` },
   });

@@ -2,54 +2,25 @@
 
 Access is **not enabled** on account `d9eebda3928171a0baf30eaffb2c03be` as of Nov 5, 2026 (America/Chicago). Eric must Enable Zero Trust/Access first.
 
-## Recommended shape (Worker-level)
+## Allowlist sync (v1.1)
 
-Protect the `operators-scheduler` Worker (staging first) for **all traffic + previews**.
+- **Source of truth:** D1 invite list (`users.email`).
+- **Code:** `src/access/sync.ts` — on invite/remove (and `POST /api/admin/access-sync`) PUTs the Access policy `include` email selectors to match the invite list.
+- **Inactive until:** `CF_ACCESS_SYNC_ENABLED=true` plus secrets `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_ACCESS_APP_ID`, `CF_ACCESS_POLICY_ID` (Worker secrets / `.dev.vars`). Without these, sync returns `status: "skipped"` and does not call Cloudflare.
+- **Do not** create Access apps from this repo until Eric approves.
 
-Pseudo API body (do not POST until Eric approves):
+## Recommended shape (Worker-level or hostname)
 
-```json
-{
-  "type": "self_hosted",
-  "name": "operators-scheduler-staging",
-  "destinations": [
-    { "type": "worker", "worker_id": "REPLACE_AFTER_CREATE" }
-  ],
-  "policies": [
-    {
-      "name": "invited podcast crew",
-      "decision": "allow",
-      "include": [
-        { "email": { "email": "ERIC_ADMIN_EMAIL" } },
-        { "email": { "email": "host1@..." } }
-      ]
-    }
-  ],
-  "session_duration": "24h"
-}
-```
+Protect staging Worker / `scheduler-staging.bandholz.com` for all traffic + previews.
 
-Also add hostname-based app for `scheduler-staging.bandholz.com` if Worker-level destination is not used.
+Create one Access **allow** policy whose include list will be overwritten by sync (start with Eric's admin email). Note the **application id** and **policy id** for secrets.
 
 ## IdP
 
-Prefer **Google (consumer OAuth)** or **Cloudflare IdP / OTP**, not Google Workspace-only — hosts are multi-org.
+Prefer Google (consumer) or Cloudflare IdP / OTP — not Workspace-only (hosts are multi-org).
 
-## Overlap with app Google sign-in
+## Three allowlists
 
-- Access = perimeter (can you hit the hostname?).
-- App OIDC + D1 allowlist = identity + roles + calendar.
-- v1 recommendation: Access allowlist can be broader; D1 is source of truth for invites.
-
-## Local wrangler Access simulation (optional later)
-
-```jsonc
-"access": {
-  "dev": {
-    "aud": "operators-scheduler-local",
-    "identity": { "email": "eric@example.com" }
-  }
-}
-```
-
-Do not enable until local Access-aware code paths are tested.
+1. App D1 (automatic)
+2. Cloudflare Access (code sync when enabled)
+3. Google test users (manual checklist — see `google-test-users.md`)

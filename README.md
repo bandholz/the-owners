@@ -2,14 +2,19 @@
 
 Invite-only shared free/busy finder for the podcast *Operators: The Owners*.
 
-See `/workspace/podcast-scheduler/spec.md`, `../eric-checklist.md`, and `/workspace/slattery-plans/podcast-scheduler-plan.md`.
+- Spec: [`SPEC.md`](./SPEC.md) (v1.1)
+- Eric checklist: [`docs/eric-checklist.md`](./docs/eric-checklist.md)
+- Plan: [`docs/implementation-plan.md`](./docs/implementation-plan.md)
+- Access sync docs: [`docs/access-config.md`](./docs/access-config.md)
+- Google test users: [`docs/google-test-users.md`](./docs/google-test-users.md)
 
 ## Ground rules
 
 - Local + (later) preview/staging only until Eric approves production.
 - No real host calendars until security review + Eric approval.
 - Never commit secrets.
-- Do not create Cloudflare D1/Access/Workers resources or deploy from this tree until Eric says so.
+- Do not create Cloudflare D1/Access/Workers resources or deploy until Eric says so.
+- No `git push` until Eric creates the repo and extends the GitHub token.
 
 ## Local
 
@@ -23,4 +28,4 @@ npm run dev
 
 ## Stack
 
-Cloudflare Workers + D1. Google OAuth (identity + `calendar.freebusy`). Cloudflare Access in front (configured separately; see `docs/access-config.md`).
+Cloudflare Workers + D1. Google OAuth (identity + `calendar.freebusy` + `calendar.calendarlist.readonly`). Cloudflare Access in front; invite list is source of truth for Access sync + Google test-user checklist.

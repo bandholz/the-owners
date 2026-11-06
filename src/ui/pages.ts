@@ -41,6 +41,7 @@ export function homePage(opts: {
   email?: string;
   role?: string;
   calendarOk?: boolean;
+  isGuest?: boolean;
 }): Response {
   if (!opts.signedIn) {
     return htmlPage(
@@ -51,16 +52,25 @@ export function homePage(opts: {
        <a class="button" href="/auth/google/start">Sign in with Google</a>`,
     );
   }
+  const guestNote = opts.isGuest
+    ? `<p class="muted">Guest: you can find times without connecting a calendar.</p>
+       <p><a class="button" href="/app">Find a time</a></p>`
+    : opts.calendarOk
+      ? `<p><a class="button" href="/app">Find a time</a> · <a href="/calendars">Calendars</a></p>`
+      : `<p><a class="button" href="/auth/google/calendar/start">Connect Google Calendar</a></p>`;
+
   return htmlPage(
     opts.appName,
     `<h1>${escapeHtml(opts.appName)}</h1>
      <p>Signed in as <strong>${escapeHtml(opts.email ?? "")}</strong> (${escapeHtml(opts.role ?? "")}).</p>
-     <p class="muted">Calendar: ${opts.calendarOk ? "connected" : "not connected"}</p>
-     ${
-       opts.calendarOk
-         ? `<p><a class="button" href="/app">Find a time</a></p>`
-         : `<p><a class="button" href="/auth/google/calendar/start">Connect Google Calendar</a></p>`
-     }
+     <p class="muted">Calendar: ${
+       opts.isGuest
+         ? "not required"
+         : opts.calendarOk
+           ? "connected"
+           : "not connected"
+     }</p>
+     ${guestNote}
      <p><a href="/auth/logout">Sign out</a> · <a href="/me/delete">Disconnect &amp; delete my data</a></p>
      ${opts.role === "admin" ? `<p><a href="/admin">Admin</a></p>` : ""}`,
   );

@@ -4,3 +4,11 @@ GOOGLE_CLIENT_SECRET=replace-me
 TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 SESSION_SECRET=replace-with-long-random-string
 APP_BASE_URL=http://localhost:8787
+
+# Access sync — leave disabled until Eric enables Access + provides app/policy ids
+CF_ACCESS_SYNC_ENABLED=false
+# CF_API_TOKEN=
+# CF_ACCOUNT_ID=d9eebda3928171a0baf30eaffb2c03be
+# CF_ACCESS_APP_ID=
+# CF_ACCESS_POLICY_ID=
+# CF_ACCESS_POLICY_NAME=operators-scheduler-invite-list

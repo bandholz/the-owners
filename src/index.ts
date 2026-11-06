@@ -1,4 +1,4 @@
-import type { Env } from "./types";
+import type { BusyInterval, Env } from "./types";
 import {
   buildGoogleAuthUrl,
   CALENDAR_SCOPES,
@@ -17,20 +17,37 @@ import {
   removeUser,
   writeAudit,
 } from "./db/users";
-import { deleteRefreshToken, storeRefreshToken } from "./db/tokens";
+import {
+  deleteRefreshToken,
+  loadRefreshToken,
+  storeRefreshToken,
+} from "./db/tokens";
+import {
+  getSelectedCalendars,
+  replaceSelectedCalendars,
+} from "./db/calendars";
+import { listGroupMemberIds } from "./db/groups";
 import { handleAdmin } from "./admin/routes";
 import { findSharedSlots } from "./freebusy/intersect";
 import { queryFreeBusy, refreshAccessToken } from "./calendar/freebusy-client";
-import { loadRefreshToken } from "./db/tokens";
+import {
+  defaultCalendarSelection,
+  listCalendars,
+} from "./calendar/calendar-list";
+import {
+  assertCanFindSlots,
+  assertSelectedPeopleForBusy,
+  mergeSelectedUserIds,
+} from "./slots/resolve";
 import {
   clearSessionCookie,
   jsonError,
   jsonOk,
+  parseCookies,
   requireCsrf,
   requireUser,
-  sessionCookieHeader,
   SESSION_COOKIE,
-  parseCookies,
+  sessionCookieHeader,
 } from "./middleware/session";
 import { homePage, htmlPage } from "./ui/pages";
 
@@ -78,6 +95,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       email: authed.user.email,
       role: authed.user.role,
       calendarOk: authed.user.token_status === "ok",
+      isGuest: authed.user.role === "guest",
     });
   }
 
@@ -92,7 +110,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
       nonce: newOAuthState(),
     });
     const res = Response.redirect(loc, 302);
-    // stash state in a short-lived cookie
     res.headers.append(
       "set-cookie",
       `ots_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
@@ -105,7 +122,10 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const state = url.searchParams.get("state");
     const cookies = parseCookies(request.headers.get("cookie"));
     if (!code || !state || state !== cookies["ots_oauth_state"]) {
-      return htmlPage("Sign-in failed", `<p class="error">Invalid OAuth state.</p>`);
+      return htmlPage(
+        "Sign-in failed",
+        `<p class="error">Invalid OAuth state.</p>`,
+      );
     }
     const redirectUri = `${env.APP_BASE_URL}/auth/google/callback`;
     const tokens = await exchangeCode(env, code, redirectUri);
@@ -156,6 +176,14 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/auth/google/calendar/start" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
+    if (authed.user.role === "guest") {
+      return htmlPage(
+        "Calendar optional",
+        `<h1>Guests do not need a calendar</h1>
+         <p>You can find times for hosts/producers without connecting Google Calendar.</p>
+         <p><a href="/app">Find a time</a></p>`,
+      );
+    }
     const state = newOAuthState();
     const redirectUri = `${env.APP_BASE_URL}/auth/google/calendar/callback`;
     const loc = buildGoogleAuthUrl({
@@ -181,7 +209,10 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const state = url.searchParams.get("state");
     const cookies = parseCookies(request.headers.get("cookie"));
     if (!code || !state || state !== cookies["ots_cal_state"]) {
-      return htmlPage("Calendar connect failed", `<p class="error">Invalid state.</p>`);
+      return htmlPage(
+        "Calendar connect failed",
+        `<p class="error">Invalid state.</p>`,
+      );
     }
     const redirectUri = `${env.APP_BASE_URL}/auth/google/calendar/callback`;
     const tokens = await exchangeCode(env, code, redirectUri);
@@ -195,27 +226,110 @@ async function handle(request: Request, env: Env): Promise<Response> {
       env.DB,
       authed.user.id,
       tokens.refresh_token,
-      (tokens.scope ?? CALENDAR_SCOPES.join(" ")).split(" "),
+      (tokens.scope ?? CALENDAR_SCOPES.join(" ")).split(/\s+/),
       env.TOKEN_ENCRYPTION_KEY,
     );
-    // Default to primary calendar until calendarList scope is approved
-    await env.DB.prepare(
-      `INSERT OR REPLACE INTO calendars_selected (user_id, calendar_id, summary, is_primary)
-       VALUES (?, 'primary', 'Primary', 1)`,
-    )
-      .bind(authed.user.id)
-      .run();
+
+    let selection = defaultCalendarSelection([]);
+    try {
+      const entries = await listCalendars(tokens.access_token);
+      selection = defaultCalendarSelection(entries);
+    } catch {
+      // fall back to primary
+    }
+    await replaceSelectedCalendars(env.DB, authed.user.id, selection);
+
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "calendar_connect",
       targetEmail: authed.user.email,
     });
-    const headers = new Headers({ location: "/" });
+    const headers = new Headers({ location: "/calendars" });
     headers.append(
       "set-cookie",
       "ots_cal_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
     );
     return new Response(null, { status: 302, headers });
+  }
+
+  if (path === "/api/calendars" && request.method === "GET") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    if (authed.user.role === "guest") {
+      return jsonError(400, "guests do not connect calendars");
+    }
+    if (authed.user.token_status !== "ok") {
+      return jsonError(400, "calendar not connected");
+    }
+    const refresh = await loadRefreshToken(
+      env.DB,
+      authed.user.id,
+      env.TOKEN_ENCRYPTION_KEY,
+    );
+    if (!refresh) return jsonError(400, "missing token");
+    const access = await refreshAccessToken(
+      env.GOOGLE_CLIENT_ID,
+      env.GOOGLE_CLIENT_SECRET,
+      refresh,
+    );
+    const available = await listCalendars(access);
+    const selected = await getSelectedCalendars(env.DB, authed.user.id);
+    return jsonOk({
+      available: available.map((c) => ({
+        id: c.id,
+        summary: c.summary,
+        primary: c.primary,
+      })),
+      selected: selected.map((c) => ({
+        id: c.calendar_id,
+        summary: c.summary,
+        primary: Boolean(c.is_primary),
+      })),
+    });
+  }
+
+  if (path === "/api/calendars" && request.method === "PUT") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    if (csrfErr) return csrfErr;
+    if (authed.user.role === "guest") {
+      return jsonError(400, "guests do not connect calendars");
+    }
+    const body = (await request.json()) as {
+      calendars?: Array<{ id: string; summary?: string; primary?: boolean }>;
+    };
+    if (!body.calendars?.length) {
+      return jsonError(400, "select at least one calendar");
+    }
+    // Only store ids/names — never events
+    await replaceSelectedCalendars(
+      env.DB,
+      authed.user.id,
+      body.calendars.map((c) => ({
+        id: c.id,
+        summary: c.summary ?? c.id,
+        primary: Boolean(c.primary),
+      })),
+    );
+    await writeAudit(env, {
+      actorUserId: authed.user.id,
+      action: "calendar_selection",
+      meta: { count: body.calendars.length },
+    });
+    return jsonOk({ ok: true });
+  }
+
+  if (path === "/calendars" && request.method === "GET") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    return htmlPage(
+      "Choose calendars",
+      `<h1>Choose calendars</h1>
+       <p class="muted">Only calendar ids and names are stored. No event details.</p>
+       <p>Use <code>GET/PUT /api/calendars</code> (CSRF from <code>/api/me</code>). Default is your primary calendar.</p>
+       <p><a href="/">Home</a> · <a href="/app">Find a time</a></p>`,
+    );
   }
 
   if (path === "/me/delete" && request.method === "POST") {
@@ -225,7 +339,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (csrfErr) return csrfErr;
     await deleteRefreshToken(env.DB, authed.user.id);
     await deleteSession(env.DB, authed.sessionId);
-    // Full account delete for non-admins; admins keep row but wipe tokens via above
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "calendar_disconnect",
@@ -243,8 +356,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       "Delete my data",
       `<h1>Disconnect &amp; delete</h1>
        <p>This revokes calendar access and deletes your account row and tokens.</p>
-       <form method="post"><button type="submit">Delete my data</button></form>
-       <p class="muted">CSRF header required for API clients; browser form needs JS CSRF in a later polish pass.</p>`,
+       <p class="muted">Use API POST with CSRF header from <code>/api/me</code>.</p>`,
     );
   }
 
@@ -255,6 +367,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
       email: authed.user.email,
       role: authed.user.role,
       token_status: authed.user.token_status,
+      guest: authed.user.role === "guest",
+      calendarRequired: authed.user.role !== "guest",
       csrf: authed.csrfSecret,
     });
   }
@@ -265,54 +379,77 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const csrfErr = requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
 
+    const can = assertCanFindSlots(authed.user);
+    if (!can.ok) return jsonError(403, can.error);
+
     const body = (await request.json()) as {
       userIds?: string[];
+      groupId?: string;
       rangeStart?: string;
       rangeEnd?: string;
       durationMinutes?: number;
       windowStartMinutes?: number;
       windowEndMinutes?: number;
     };
+    if (!body.rangeStart || !body.rangeEnd || !body.durationMinutes) {
+      return jsonError(400, "range and duration required");
+    }
+
+    let groupMemberIds: string[] = [];
+    if (body.groupId) {
+      groupMemberIds = await listGroupMemberIds(env.DB, body.groupId);
+    }
+    const selectedIds = mergeSelectedUserIds({
+      userIds: body.userIds,
+      groupId: body.groupId,
+      groupMemberIds,
+    });
+
+    const selectedUsers = [];
+    for (const uid of selectedIds) {
+      const u = await getUserById(env.DB, uid);
+      if (!u) return jsonError(400, `unknown user: ${uid}`);
+      selectedUsers.push(u);
+    }
+
+    const busyCheck = assertSelectedPeopleForBusy(selectedUsers);
+    if (!busyCheck.ok) return jsonError(400, busyCheck.error);
+
+    // Guests (and anyone) only see free/busy for people they selected —
+    // never auto-include the actor unless they are in selectedIds.
     if (
-      !body.userIds?.length ||
-      !body.rangeStart ||
-      !body.rangeEnd ||
-      !body.durationMinutes
+      authed.user.role === "guest" &&
+      selectedIds.includes(authed.user.id) &&
+      authed.user.token_status !== "ok"
     ) {
-      return jsonError(400, "userIds, range, duration required");
+      return jsonError(
+        400,
+        "guests cannot include themselves in busy selection without a connected calendar",
+      );
     }
 
     const rangeStart = new Date(body.rangeStart);
     const rangeEnd = new Date(body.rangeEnd);
     if (!(rangeStart < rangeEnd)) return jsonError(400, "bad range");
-    // Cap 14 days
     if (rangeEnd.getTime() - rangeStart.getTime() > 14 * 86400_000) {
       return jsonError(400, "range max 14 days");
     }
 
-    const busyByUser: import("./types").BusyInterval[][] = [];
-    for (const uid of body.userIds) {
-      const u = await getUserById(env.DB, uid);
-      if (!u || u.token_status !== "ok") {
-        return jsonError(400, `user not connected: ${uid}`);
-      }
+    const busyByUser: BusyInterval[][] = [];
+    for (const u of selectedUsers) {
       const refresh = await loadRefreshToken(
         env.DB,
-        uid,
+        u.id,
         env.TOKEN_ENCRYPTION_KEY,
       );
-      if (!refresh) return jsonError(400, `missing token: ${uid}`);
+      if (!refresh) return jsonError(400, `missing token: ${u.email}`);
       const access = await refreshAccessToken(
         env.GOOGLE_CLIENT_ID,
         env.GOOGLE_CLIENT_SECRET,
         refresh,
       );
-      const cals = await env.DB.prepare(
-        "SELECT calendar_id FROM calendars_selected WHERE user_id = ?",
-      )
-        .bind(uid)
-        .all<{ calendar_id: string }>();
-      const ids = (cals.results ?? []).map((c) => c.calendar_id);
+      const cals = await getSelectedCalendars(env.DB, u.id);
+      const ids = cals.map((c) => c.calendar_id);
       if (!ids.length) ids.push("primary");
       const busy = await queryFreeBusy({
         timeMin: rangeStart.toISOString(),
@@ -336,11 +473,17 @@ async function handle(request: Request, env: Env): Promise<Response> {
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "find_slots",
-      meta: { count: slots.length, users: body.userIds.length },
+      meta: {
+        count: slots.length,
+        users: selectedIds.length,
+        groupId: body.groupId ?? null,
+        actorRole: authed.user.role,
+      },
     });
 
     return jsonOk({
       timezone: env.DEFAULT_TIMEZONE,
+      selectedUserIds: selectedIds,
       slots: slots.map((s) => ({
         start: s.start.toISOString(),
         end: s.end.toISOString(),
@@ -371,7 +514,12 @@ async function handle(request: Request, env: Env): Promise<Response> {
     return htmlPage(
       "Find a time",
       `<h1>Find a time</h1>
-       <p class="muted">UI polish later. Use <code>POST /api/slots</code> with CSRF from <code>GET /api/me</code>.</p>
+       <p class="muted">Times in Central Time. Pick people and/or a saved group via <code>POST /api/slots</code>.</p>
+       ${
+         authed.user.role === "guest"
+           ? `<p>Guests do not need a calendar. Select hosts/producers who have connected.</p>`
+           : ``
+       }
        <p><a href="/">Home</a></p>`,
     );
   }
@@ -383,7 +531,13 @@ async function handle(request: Request, env: Env): Promise<Response> {
     return htmlPage(
       "Admin",
       `<h1>Admin</h1>
-       <p>Invite/remove via <code>/api/admin/*</code>. CSRF from <code>/api/me</code>.</p>
+       <ul>
+         <li>Invite/remove: <code>/api/admin/*</code></li>
+         <li>Access sync status: <code>GET /api/admin/access-sync</code></li>
+         <li><strong>Google test users to add/remove:</strong> <code>GET /api/admin/google-test-users</code></li>
+         <li>Groups: <code>/api/groups</code></li>
+       </ul>
+       <p class="muted">CSRF from <code>/api/me</code>. App invite list is source of truth for Access + Google test-user checklist.</p>
        <p><a href="/">Home</a></p>`,
     );
   }

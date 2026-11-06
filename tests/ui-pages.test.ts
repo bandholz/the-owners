@@ -263,6 +263,8 @@ describe("staging screens", () => {
     expect(text).toContain("Sync Access now");
     expect(text).toContain('id="heatmap-settings-form"');
     expect(text).toContain('id="heat-day-count"');
+    expect(text).toContain("Max days shown");
+    expect(text).not.toContain(">Days shown");
     expect(text).toContain('id="heat-show-weekends"');
     expect(text).toContain('id="heat-admin-start"');
     expect(text).toContain('id="heat-admin-end"');
@@ -377,11 +379,13 @@ describe("page script time helpers", () => {
     expect(script).toContain("(Group)");
     expect(script).toContain("Add a group");
     expect(script).toContain("defaultGroupName");
-    expect(script).toContain("business days");
+    expect(script).toContain("weekdays");
     expect(script).toContain("Next week");
     expect(script).toContain("Custom range");
     expect(script).toContain("includeWeekends");
-    expect(script).toContain("Custom ranges stop at 14 days.");
+    expect(script).toContain("Custom ranges stop at ");
+    expect(script).toContain("selectNextWeek");
+    expect(script).not.toContain("Custom ranges stop at 14 days.");
     expect(script).toContain("nav-toggle");
     expect(script).not.toContain("Next 5 business days");
     expect(script).not.toContain("Next N business days");

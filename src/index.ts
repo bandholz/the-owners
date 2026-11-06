@@ -643,12 +643,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const rangeEnd = new Date(body.rangeEnd);
     if (!(rangeStart < rangeEnd)) return jsonError(400, "bad range");
     const settings = await getHeatmapSettings(env.DB);
-    const includeWeekends =
-      body.includeWeekends === true
-        ? true
-        : body.includeWeekends === false
-          ? false
-          : settings.showWeekends;
+    const includeWeekends = settings.showWeekends;
     const calendarDays = includedDayKeys(
       rangeStart,
       rangeEnd,
@@ -667,16 +662,10 @@ async function handle(request: Request, env: Env): Promise<Response> {
         includeWeekends ? "no days in range" : "no weekdays in range",
       );
     }
-    if (includeWeekends && calendarDays > 14) {
-      return jsonError(400, "range max 14 days");
+    if (included.length > settings.dayCount) {
+      return jsonError(400, `range max ${settings.dayCount} days`);
     }
-    if (!includeWeekends && included.length > settings.dayCount) {
-      return jsonError(
-        400,
-        `range max ${settings.dayCount} business days`,
-      );
-    }
-    if (calendarDays > 21) return jsonError(400, "range max 14 days");
+    if (calendarDays > 24) return jsonError(400, `range max ${settings.dayCount} days`);
     const windowStartMinutes = settings.windowStartMinutes;
     const windowEndMinutes = settings.windowEndMinutes;
 

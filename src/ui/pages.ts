@@ -148,7 +148,7 @@ export function homePage(opts: {
         <span id="heat-legend-max">0/0 Available</span>
         <span class="heat-key"><span class="heat-unshared-key" aria-hidden="true"></span> Not shared</span>
       </div>
-      <p class="hint" id="heat-rules">Hover or tap a time to see who is free, busy, or not shared. 9:00 AM–5:00 PM Central. Next week follows the saved day count. Custom ranges can cover up to 14 days.</p>
+      <p class="hint" id="heat-rules">Hover or tap a time to see who is free, busy, or not shared. 9:00 AM–5:00 PM Central. Next week is one week. Custom ranges stop at the max days shown.</p>
       <div id="heat-msg" class="banner" hidden></div>
       <div id="heat-create" class="heat-create" hidden>
         <label class="field">Title
@@ -288,9 +288,9 @@ export function adminPage(viewer: Viewer): Response {
       </section>
       <section class="card" id="heatmap-settings-card">
         <h2>Heatmap</h2>
-        <p class="hint">These rules apply to everyone on Home. Times are Central (America/Chicago). Busy or free only.</p>
+        <p class="hint">These rules apply to everyone on Home. Times are Central (America/Chicago). Busy or free only. Max days shown is the most days a custom range can display.</p>
         <form id="heatmap-settings-form" class="form-grid">
-          <label class="field">Days shown
+          <label class="field">Max days shown
             <input id="heat-day-count" type="number" min="1" max="14" step="1" value="5" required />
           </label>
           <label class="field">Weekends

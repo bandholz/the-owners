@@ -285,20 +285,6 @@ function initHeat() {
   let viewMonth = "";
   let hoverFromTouch = false;
 
-  function includedDayCount(startDate, endDate) {
-    if (!startDate || !endDate || startDate > endDate) return null;
-    let count = 0;
-    let cursor = startDate;
-    let guard = 0;
-    while (cursor <= endDate && guard < 60) {
-      const day = weekdayIndex(cursor);
-      if (heatSettings.showWeekends || (day !== 0 && day !== 6)) count += 1;
-      cursor = addDays(cursor, 1);
-      guard += 1;
-    }
-    return count;
-  }
-
   function formatMinutes(minutes) {
     const h24 = Math.floor(minutes / 60) % 24;
     const min = minutes % 60;
@@ -321,20 +307,23 @@ function initHeat() {
     if (data && typeof data.defaultGroupName === "string") {
       heatSettings.defaultGroupName = data.defaultGroupName;
     }
-    const unit = heatSettings.showWeekends
-      ? "days, including weekends"
-      : "business days, skipping Saturday and Sunday";
+    const weekendNote = heatSettings.showWeekends
+      ? "including weekends"
+      : "skipping Saturday and Sunday";
+    const unit = heatSettings.showWeekends ? "days" : "weekdays";
     if (rulesEl) {
       rulesEl.textContent =
         "Hover or tap a time to see who is free, busy, or not shared. " +
         formatMinutes(heatSettings.windowStartMinutes) +
         "–" +
         formatMinutes(heatSettings.windowEndMinutes) +
-        " Central. Next week follows the saved count of " +
+        " Central. Next week is one week, " +
+        weekendNote +
+        ". Custom ranges stop at " +
         heatSettings.dayCount +
         " " +
         unit +
-        ". Custom ranges can cover up to 14 days.";
+        ".";
     }
     if (rangePreset === "next" || !committedStart) {
       const preset = nextWeekRange();
@@ -419,13 +408,58 @@ function initHeat() {
   }
 
   function nextWeekRange() {
-    const count = heatSettings.dayCount || 5;
+    const week = heatSettings.showWeekends ? 7 : 5;
+    const max = heatSettings.dayCount || week;
+    const count = Math.min(week, max);
     const today = chicagoToday();
     const from = heatSettings.showWeekends ? today : rollToWeekday(today);
     const end = heatSettings.showWeekends
       ? addDays(from, Math.max(0, count - 1))
       : addBusinessDays(from, Math.max(0, count - 1));
     return { start: from, end: end };
+  }
+
+  function isIncludedDay(iso) {
+    const day = weekdayIndex(iso);
+    if (day == null) return false;
+    return heatSettings.showWeekends || (day !== 0 && day !== 6);
+  }
+
+  function displayedDayCount(startDate, endDate) {
+    if (!startDate || !endDate || startDate > endDate) return null;
+    let count = 0;
+    let cursor = startDate;
+    let guard = 0;
+    while (cursor <= endDate && guard < 60) {
+      if (isIncludedDay(cursor)) count += 1;
+      cursor = addDays(cursor, 1);
+      guard += 1;
+    }
+    return count;
+  }
+
+  function clampEnd(startDate, endDate) {
+    const max = heatSettings.dayCount || 1;
+    if (!startDate || !endDate || startDate > endDate) return null;
+    let count = 0;
+    let cursor = startDate;
+    let last = startDate;
+    let guard = 0;
+    while (cursor <= endDate && guard < 60) {
+      if (isIncludedDay(cursor)) {
+        count += 1;
+        if (count > max) return { end: last, capped: true };
+        last = cursor;
+      }
+      cursor = addDays(cursor, 1);
+      guard += 1;
+    }
+    return { end: endDate, capped: false };
+  }
+
+  function maxDaysNote() {
+    const unit = heatSettings.showWeekends ? "days" : "weekdays";
+    return "Custom ranges stop at " + heatSettings.dayCount + " " + unit + ".";
   }
 
   function updateRangeTrigger() {
@@ -522,13 +556,13 @@ function initHeat() {
       setRangeNote("");
       return;
     }
-    const span = inclusiveDaySpan(draftStart, draftEnd);
-    if (span != null && span > 14) {
-      draftEnd = addDays(draftStart, 13);
-      setRangeNote("Custom ranges stop at 14 days.");
+    const clamped = clampEnd(draftStart, draftEnd);
+    if (!clamped) {
+      setRangeNote("");
       return;
     }
-    setRangeNote("");
+    draftEnd = clamped.end;
+    setRangeNote(clamped.capped ? maxDaysNote() : "");
   }
 
   function readRangeFields() {
@@ -591,6 +625,19 @@ function initHeat() {
     }
   }
 
+  function commitDraft() {
+    if (!draftStart || !draftEnd || draftStart > draftEnd) {
+      setRangeNote("Choose a start date on or before the end date.");
+      return false;
+    }
+    committedStart = draftStart;
+    committedEnd = draftEnd;
+    rangePreset = draftPreset;
+    updateRangeTrigger();
+    scheduleHeat();
+    return true;
+  }
+
   function applyRange() {
     readRangeFields();
     if (draftPreset === "next") {
@@ -598,17 +645,21 @@ function initHeat() {
       draftStart = preset.start;
       draftEnd = preset.end;
     }
-    if (!draftStart || !draftEnd || draftStart > draftEnd) {
-      setRangeNote("Choose a start date on or before the end date.");
-      return;
-    }
     clampDraft();
-    committedStart = draftStart;
-    committedEnd = draftEnd;
-    rangePreset = draftPreset;
-    updateRangeTrigger();
+    if (!commitDraft()) return;
     closeRange(false);
-    scheduleHeat();
+  }
+
+  function selectNextWeek() {
+    const range = nextWeekRange();
+    draftPreset = "next";
+    draftStart = range.start;
+    draftEnd = range.end;
+    pickingEnd = false;
+    viewMonth = monthKey(draftStart);
+    setRangeNote("");
+    syncRangeDraft();
+    commitDraft();
   }
 
   function bindRangePicker() {
@@ -637,17 +688,11 @@ function initHeat() {
       btn.addEventListener("click", () => {
         const preset = btn.getAttribute("data-preset");
         if (preset === "next") {
-          const range = nextWeekRange();
-          draftPreset = "next";
-          draftStart = range.start;
-          draftEnd = range.end;
-          pickingEnd = false;
-          viewMonth = monthKey(draftStart);
-          setRangeNote("");
-        } else {
-          draftPreset = "custom";
-          setRangeNote("");
+          selectNextWeek();
+          return;
         }
+        draftPreset = "custom";
+        setRangeNote("");
         syncRangeDraft();
       });
     });
@@ -827,9 +872,8 @@ function initHeat() {
     hideHover();
     const total = typeof data.total === "number" ? data.total : (data.people || []).length;
     setLegend(total);
-    const keepWeekends = data.includeWeekends === true || !!heatSettings.showWeekends;
     const days = (Array.isArray(data.days) ? data.days : []).filter((day) => {
-      if (keepWeekends) return true;
+      if (heatSettings.showWeekends) return true;
       const name = day.weekday || "";
       return name !== "Sat" && name !== "Sun";
     });
@@ -1190,32 +1234,18 @@ function initHeat() {
       setBanner(msg, "bad", "Choose a start date on or before the end date.");
       return;
     }
-    const custom = rangePreset === "custom";
-    if (custom) {
-      const span = inclusiveDaySpan(committedStart, committedEnd);
-      if (span == null) {
-        setBanner(msg, "bad", "Choose a start date on or before the end date.");
-        return;
-      }
-      if (span > 14) {
-        setBanner(msg, "bad", "Custom ranges stop at 14 days.");
-        return;
-      }
-    } else {
-      const included = includedDayCount(committedStart, committedEnd);
-      if (included == null) {
-        setBanner(msg, "bad", "Choose a start date on or before the end date.");
-        return;
-      }
-      if (included === 0) {
-        setBanner(msg, "bad", heatSettings.showWeekends ? "Choose a date range." : "That range has no weekdays.");
-        return;
-      }
-      if (included > heatSettings.dayCount) {
-        const unit = heatSettings.showWeekends ? "days" : "business days";
-        setBanner(msg, "bad", "Choose " + heatSettings.dayCount + " " + unit + " or fewer.");
-        return;
-      }
+    const shown = displayedDayCount(committedStart, committedEnd);
+    if (shown == null) {
+      setBanner(msg, "bad", "Choose a start date on or before the end date.");
+      return;
+    }
+    if (shown === 0) {
+      setBanner(msg, "bad", heatSettings.showWeekends ? "Choose a date range." : "That range has no weekdays.");
+      return;
+    }
+    if (shown > heatSettings.dayCount) {
+      setBanner(msg, "bad", maxDaysNote());
+      return;
     }
     let rangeStart = "";
     let rangeEnd = "";
@@ -1234,7 +1264,7 @@ function initHeat() {
       userIds: sel.picked.map((person) => person.id),
       rangeStart: rangeStart,
       rangeEnd: rangeEnd,
-      includeWeekends: custom ? true : !!heatSettings.showWeekends,
+      includeWeekends: !!heatSettings.showWeekends,
     };
     loadMe(false).then((me) => fetch("/api/availability", {
       method: "POST",

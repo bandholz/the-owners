@@ -49,7 +49,17 @@ import {
   SESSION_COOKIE,
   sessionCookieHeader,
 } from "./middleware/session";
-import { homePage, htmlPage } from "./ui/pages";
+import {
+  adminPage,
+  availableTimesPage,
+  calendarsPage,
+  deletePage,
+  escapeHtml,
+  homePage,
+  htmlPage,
+  noticePage,
+  toViewer,
+} from "./ui/pages";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -93,9 +103,11 @@ async function handle(request: Request, env: Env): Promise<Response> {
       appName: env.APP_NAME,
       signedIn: true,
       email: authed.user.email,
+      name: authed.user.name,
       role: authed.user.role,
       calendarOk: authed.user.token_status === "ok",
       isGuest: authed.user.role === "guest",
+      timeZone: env.DEFAULT_TIMEZONE,
     });
   }
 
@@ -126,7 +138,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (!code || !state || state !== cookies["ots_oauth_state"]) {
       return htmlPage(
         "Sign-in failed",
-        `<p class="error">Invalid OAuth state.</p>`,
+        `<h1>Sign-in failed</h1><p class="banner banner-bad">Invalid OAuth state. Start again from the home page.</p><p><a class="btn" href="/">Home</a></p>`,
+        env.APP_NAME,
       );
     }
     const redirectUri = `${env.APP_BASE_URL}/auth/google/callback`;
@@ -141,7 +154,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
       });
       return htmlPage(
         "Not invited",
-        `<h1>Not invited</h1><p>Ask an admin to invite <strong>${email}</strong>.</p>`,
+        `<h1>Not invited</h1><p>Ask an admin to invite <strong>${escapeHtml(email)}</strong>.</p>`,
+        env.APP_NAME,
       );
     }
     await markLogin(env.DB, user.id, info.sub, info.name ?? null);
@@ -179,12 +193,13 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
     if (authed.user.role === "guest") {
-      return htmlPage(
-        "Calendar optional",
-        `<h1>Guests do not need a calendar</h1>
-         <p>You can find times for hosts/producers without connecting Google Calendar.</p>
-         <p><a href="/app">Find a time</a></p>`,
-      );
+      return noticePage(toViewer(env, authed.user), {
+        title: "Calendar optional",
+        active: "calendars",
+        heading: "Guests do not need a calendar",
+        body: `<p>You can use Available times for hosts and producers without connecting Google Calendar.</p>
+         <p><a class="btn btn-primary" href="/app">Available times</a></p>`,
+      });
     }
     const state = newOAuthState();
     const redirectUri = `${env.APP_BASE_URL}/auth/google/calendar/callback`;
@@ -214,7 +229,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (!code || !state || state !== cookies["ots_cal_state"]) {
       return htmlPage(
         "Calendar connect failed",
-        `<p class="error">Invalid state.</p>`,
+        `<h1>Calendar connect failed</h1><p class="banner banner-bad">Invalid state. Try connecting again.</p>`,
+        env.APP_NAME,
       );
     }
     const redirectUri = `${env.APP_BASE_URL}/auth/google/calendar/callback`;
@@ -222,7 +238,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (!tokens.refresh_token) {
       return htmlPage(
         "Calendar connect failed",
-        `<p class="error">No refresh token returned. Revoke app access in Google Account and retry.</p>`,
+        `<h1>Calendar connect failed</h1><p class="banner banner-bad">No refresh token returned. Revoke app access in your Google Account and try again.</p>`,
+        env.APP_NAME,
       );
     }
     await storeRefreshToken(
@@ -326,13 +343,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/calendars" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
-    return htmlPage(
-      "Choose calendars",
-      `<h1>Choose calendars</h1>
-       <p class="muted">Only calendar ids and names are stored. No event details.</p>
-       <p>Use <code>GET/PUT /api/calendars</code> (CSRF from <code>/api/me</code>). Default is your primary calendar.</p>
-       <p><a href="/">Home</a> · <a href="/app">Find a time</a></p>`,
-    );
+    return calendarsPage(toViewer(env, authed.user));
   }
 
   if (path === "/me/delete" && request.method === "POST") {
@@ -355,12 +366,17 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/me/delete" && request.method === "GET") {
-    return htmlPage(
-      "Delete my data",
-      `<h1>Disconnect &amp; delete</h1>
-       <p>This revokes calendar access and deletes your account row and tokens.</p>
-       <p class="muted">Use API POST with CSRF header from <code>/api/me</code>.</p>`,
-    );
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) {
+      return htmlPage(
+        "Delete my data",
+        `<h1>Disconnect and delete</h1>
+         <p>Sign in to revoke calendar access and delete your account.</p>
+         <p><a class="btn btn-primary" href="/auth/google/start">Sign in with Google</a></p>`,
+        env.APP_NAME,
+      );
+    }
+    return deletePage(toViewer(env, authed.user));
   }
 
   if (path === "/api/me" && request.method === "GET") {
@@ -514,35 +530,14 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/app" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
-    return htmlPage(
-      "Find a time",
-      `<h1>Find a time</h1>
-       <p class="muted">Times in Central Time. Pick people and/or a saved group via <code>POST /api/slots</code>.</p>
-       ${
-         authed.user.role === "guest"
-           ? `<p>Guests do not need a calendar. Select hosts/producers who have connected.</p>`
-           : ``
-       }
-       <p><a href="/">Home</a></p>`,
-    );
+    return availableTimesPage(toViewer(env, authed.user));
   }
 
   if (path === "/admin" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
     if (authed.user.role !== "admin") return jsonError(403, "admin only");
-    return htmlPage(
-      "Admin",
-      `<h1>Admin</h1>
-       <ul>
-         <li>Invite/remove: <code>/api/admin/*</code></li>
-         <li>Access sync status: <code>GET /api/admin/access-sync</code></li>
-         <li><strong>Google test users to add/remove:</strong> <code>GET /api/admin/google-test-users</code></li>
-         <li>Groups: <code>/api/groups</code></li>
-       </ul>
-       <p class="muted">CSRF from <code>/api/me</code>. App invite list is source of truth for Access + Google test-user checklist.</p>
-       <p><a href="/">Home</a></p>`,
-    );
+    return adminPage(toViewer(env, authed.user));
   }
 
   return jsonError(404, "not found");

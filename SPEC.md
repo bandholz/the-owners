@@ -43,7 +43,7 @@ Later (not v1): optional attendees, holding a slot on everyone's calendar with a
 Cloudflare Workers + D1 database, behind Cloudflare Access. Built by Slattery.
 
 ## Repo, releases and backups
-- Repo: private GitHub repo under the bandholz org (e.g. `bandholz/operators-the-owners-scheduler`). Only Eric and Slattery's build access; branch protection on `main`.
+- Repo: private GitHub repo under the bandholz org (e.g. `bandholz/the-owners`). Only Eric and Slattery's build access; branch protection on `main`.
 - Branching: `main` is always deployable and is what production runs. Work happens on short-lived feature branches merged by pull request, with automated tests and a secret scan required to pass.
 - Environments: pull requests deploy to a private preview; merges to `main` deploy to staging; production deploys only from a release tag.
 - Release tagging: semantic versions (`v0.1.0`, `v1.0.0`) with GitHub release notes listing changes. Rolling back means redeploying the previous tag.

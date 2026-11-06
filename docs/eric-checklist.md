@@ -16,7 +16,7 @@ Ground rules: preview/staging only; no production; no real host calendars until 
 Still pick:
 
 - [ ] **Domain base.** Proposed: `sovrnty.com` → `scheduler-staging.sovrnty.com` / `scheduler.sovrnty.com` (+ Workers previews on `beardbrand` behind Access).
-- [ ] **Repo name.** Proposed: `bandholz/operators-the-owners-scheduler`.
+- [ ] **Repo name.** Proposed: `bandholz/the-owners`.
 - [x] **First admin email:** `eric@beardbrand.com` (seed admin; the only staging user for now, no other people yet).
 
 ---
@@ -72,7 +72,7 @@ Still pick:
 
 ## 5. GitHub repo + token access
 
-- [ ] Create private **`bandholz/operators-the-owners-scheduler`**
+- [ ] Create private **`bandholz/the-owners`**
 - [ ] Branch protection on `main`: PR required; checks `test`, `typecheck`, `secret-scan`; secret scanning + Dependabot on
 - [ ] Extend fine-grained token **“Slattery Beardbrand”** to this repo (Contents/PRs/Workflows/Actions as needed). Current token cannot create or access it.
 - [ ] Wire `bandholz/grok-bot-backup` mirror after first push.

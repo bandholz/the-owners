@@ -186,7 +186,7 @@ Inputs: required user IDs, date range `[start, end)`, duration minutes, daily wi
 
 ## 7. CI/CD and environments
 
-**Repo (Eric creates):** `bandholz/operators-the-owners-scheduler` (private).
+**Repo (Eric creates):** `bandholz/the-owners` (private).
 
 **Branch protection on `main`:**
 - Require PR
@@ -286,7 +286,7 @@ See also open questions in the report / checklist.
 1. **Access vs app Google sign-in overlap** — both required by spec; ops model underspecified.
 2. **`calendar.freebusy` only vs calendar picker** — picking calendars typically needs `calendar.calendarlist.readonly`.
 3. **Google consent Internal vs External** — Internal impossible for multi-org hosts; Testing + External is the fit, but creates a third allowlist (test users).
-4. **Repo name** — spec says e.g. `bandholz/operators-the-owners-scheduler`; confirm.
+4. **Repo name** — spec says e.g. `bandholz/the-owners`; confirm.
 5. **Domain** — not named in spec.
 6. **Groups** — "optional groups" mentioned; UI depth for v1 unclear.
 7. **Guest role** — invited but maybe no calendar? Can they run find-time?

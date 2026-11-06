@@ -196,7 +196,7 @@ export function buildAvailabilityGrid(input: {
   showWeekends?: boolean;
   timeZone: string;
 }): AvailabilityGrid {
-  const slotMinutes = input.slotMinutes ?? 15;
+  const slotMinutes = input.slotMinutes ?? 30;
   const timeZone = input.timeZone;
   const days = includedDayKeys(
     input.rangeStart,

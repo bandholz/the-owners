@@ -468,7 +468,7 @@ function initHeat() {
     });
     const table = h("table", { class: "heat-table" });
     const headRow = h("tr", {});
-    headRow.append(h("th", {}));
+    headRow.append(h("th", { class: "heat-time" }));
     days.forEach((day) => {
       const th = h("th", { class: "heat-day" });
       th.append(h("small", { text: day.label || day.date || "" }));
@@ -494,7 +494,7 @@ function initHeat() {
         button.style.background = heatFill(cell.freeCount || 0, total);
         const enriched = {
           label: cell.label || row.label,
-          endLabel: clockLabel(row.minutes + (data.slotMinutes || 15)),
+          endLabel: clockLabel(row.minutes + (data.slotMinutes || 30)),
           dayLabel: day.label || "",
           weekday: day.weekday || "",
           people: cell.people || [],

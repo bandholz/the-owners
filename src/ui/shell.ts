@@ -401,8 +401,8 @@ a { color: inherit; }
   height: 12px;
   border: 1px solid #1a1a1a;
 }
-.heat-wrap { position: relative; overflow-x: auto; padding-bottom: 2px; }
-.heat-table { border-collapse: collapse; width: auto; }
+.heat-wrap { position: relative; width: 100%; overflow-x: auto; padding-bottom: 2px; }
+.heat-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 .heat-chips {
   display: flex;
   flex-wrap: wrap;
@@ -435,7 +435,7 @@ a { color: inherit; }
 .heat-cell {
   display: block;
   width: 100%;
-  min-width: 28px;
+  min-width: 0;
   height: 11px;
   border-right: 1px solid #1a1a1a;
   border-bottom: 1px dotted #8a8a8a;

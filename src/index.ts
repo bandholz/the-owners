@@ -624,7 +624,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       rangeEnd,
       windowStartMinutes,
       windowEndMinutes,
-      slotMinutes: 15,
+      slotMinutes: 30,
       showWeekends: settings.showWeekends,
       timeZone: env.DEFAULT_TIMEZONE,
     });

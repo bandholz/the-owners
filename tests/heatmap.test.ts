@@ -19,8 +19,7 @@ describe("availability heatmap", () => {
       rangeStart: new Date("2026-11-10T06:00:00.000Z"),
       rangeEnd: new Date("2026-11-11T06:00:00.000Z"),
       windowStartMinutes: 9 * 60,
-      windowEndMinutes: 10 * 60 + 15,
-      slotMinutes: 15,
+      windowEndMinutes: 10 * 60 + 30,
       people: [
         { id: "a", name: "Ada Host", email: "ada@example.com" },
         { id: "b", name: null, email: "beau@example.com" },
@@ -40,11 +39,10 @@ describe("availability heatmap", () => {
     expect(grid.total).toBe(2);
     expect(grid.days.map((d) => d.date)).toEqual(["2026-11-10"]);
     expect(grid.days[0].weekday).toBe("Tue");
+    expect(grid.slotMinutes).toBe(30);
     expect(grid.rows.map((r) => r.label)).toEqual([
       "9:00 AM",
-      "9:15 AM",
       "9:30 AM",
-      "9:45 AM",
       "10:00 AM",
     ]);
 
@@ -99,8 +97,10 @@ describe("availability heatmap", () => {
     expect(grid.days.map((d) => d.weekday)).toEqual(["Fri", "Mon", "Tue"]);
     expect(grid.days.map((d) => d.date)).not.toContain("2026-11-07");
     expect(grid.days.map((d) => d.date)).not.toContain("2026-11-08");
+    expect(grid.slotMinutes).toBe(30);
     expect(grid.rows[0].label).toBe("9:00 AM");
-    expect(grid.rows[grid.rows.length - 1].label).toBe("4:45 PM");
+    expect(grid.rows[grid.rows.length - 1].label).toBe("4:30 PM");
+    expect(grid.rows.some((r) => r.label === "4:45 PM")).toBe(false);
     expect(grid.rows.some((r) => r.label === "5:00 PM")).toBe(false);
     const withWeekends = buildAvailabilityGrid({
       timeZone: CT,

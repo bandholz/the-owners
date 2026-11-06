@@ -603,6 +603,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       groupId?: string;
       rangeStart?: string;
       rangeEnd?: string;
+      includeWeekends?: boolean;
     };
     if (!body.rangeStart || !body.rangeEnd) {
       return jsonError(400, "range required");
@@ -642,26 +643,40 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const rangeEnd = new Date(body.rangeEnd);
     if (!(rangeStart < rangeEnd)) return jsonError(400, "bad range");
     const settings = await getHeatmapSettings(env.DB);
+    const includeWeekends =
+      body.includeWeekends === true
+        ? true
+        : body.includeWeekends === false
+          ? false
+          : settings.showWeekends;
+    const calendarDays = includedDayKeys(
+      rangeStart,
+      rangeEnd,
+      env.DEFAULT_TIMEZONE,
+      true,
+    ).length;
     const included = includedDayKeys(
       rangeStart,
       rangeEnd,
       env.DEFAULT_TIMEZONE,
-      settings.showWeekends,
+      includeWeekends,
     );
     if (included.length === 0) {
       return jsonError(
         400,
-        settings.showWeekends ? "no days in range" : "no weekdays in range",
+        includeWeekends ? "no days in range" : "no weekdays in range",
       );
     }
-    if (included.length > settings.dayCount) {
+    if (includeWeekends && calendarDays > 14) {
+      return jsonError(400, "range max 14 days");
+    }
+    if (!includeWeekends && included.length > settings.dayCount) {
       return jsonError(
         400,
-        settings.showWeekends
-          ? `range max ${settings.dayCount} days`
-          : `range max ${settings.dayCount} business days`,
+        `range max ${settings.dayCount} business days`,
       );
     }
+    if (calendarDays > 21) return jsonError(400, "range max 14 days");
     const windowStartMinutes = settings.windowStartMinutes;
     const windowEndMinutes = settings.windowEndMinutes;
 
@@ -691,7 +706,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       windowStartMinutes,
       windowEndMinutes,
       slotMinutes: 30,
-      showWeekends: settings.showWeekends,
+      showWeekends: includeWeekends,
       timeZone: env.DEFAULT_TIMEZONE,
     });
 
@@ -714,6 +729,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       windowEndMinutes,
       dayCount: settings.dayCount,
       showWeekends: settings.showWeekends,
+      includeWeekends,
       people: selectedUsers.map((u) => ({
         id: u.id,
         name: u.name,

@@ -131,10 +131,21 @@ describe("staging screens", () => {
     expect(text).toContain("heat-chips");
     expect(text).not.toContain('id="heat-window-start"');
     expect(text).not.toContain('id="heat-window-end"');
-    expect(text).toContain("Hover a time to see who is free and who is busy.");
+    expect(text).toContain("Hover or tap a time to see who is free, busy, or not shared.");
     expect(text).toContain("0/0 Available");
     expect(text).toContain("/api/availability");
-    expect(text).toContain("five business days");
+    expect(text).toContain('id="heat-range-trigger"');
+    expect(text).toContain('id="heat-range-label">Next week');
+    expect(text).toContain("Custom range");
+    expect(text).toContain('id="heat-range-apply"');
+    expect(text).toContain('id="heat-range-cancel"');
+    expect(text).not.toContain('id="heat-start"');
+    expect(text).not.toContain('id="heat-end"');
+    expect(text).not.toContain("Next 5 business days");
+    expect(text).not.toContain("Next N business days");
+    expect(text).toContain('id="nav-toggle"');
+    expect(text).toContain('id="app-nav"');
+    expect(text).toContain('aria-label="Open menu"');
     expect(text).toContain("9:00 AM–5:00 PM");
     expect(text).toContain('id="heat-title"');
     expect(text).toContain('id="heat-confirm-go"');
@@ -187,6 +198,8 @@ describe("staging screens", () => {
     expect(text).toContain('href="/calendars"');
     expect(text).toContain('id="disconnect-card"');
     expect(text).toContain('id="delete-account"');
+    expect(text).toContain('id="nav-toggle"');
+    expect(text).toContain('id="app-nav"');
     expect(text).toContain('id="share-window-form"');
     expect(text).toContain("Full future");
     expect(text).toContain("Next week");
@@ -228,6 +241,8 @@ describe("staging screens", () => {
 
     const text = await html("/admin", user({ role: "admin", name: "Ada Admin" }));
     expect(text).toContain('id="nav-admin"');
+    expect(text).toContain('id="nav-toggle"');
+    expect(text).toContain('id="app-nav"');
     expect(text).toContain("<h1>Admin</h1>");
     expect(text).toContain('id="invite-form"');
     expect(text).toContain('id="invite-email"');
@@ -363,6 +378,13 @@ describe("page script time helpers", () => {
     expect(script).toContain("Add a group");
     expect(script).toContain("defaultGroupName");
     expect(script).toContain("business days");
+    expect(script).toContain("Next week");
+    expect(script).toContain("Custom range");
+    expect(script).toContain("includeWeekends");
+    expect(script).toContain("Custom ranges stop at 14 days.");
+    expect(script).toContain("nav-toggle");
+    expect(script).not.toContain("Next 5 business days");
+    expect(script).not.toContain("Next N business days");
     expect(script).toContain("/api/heatmap-settings");
     expect(script).toContain("/api/admin/heatmap-settings");
     expect(script).toContain("/api/events");

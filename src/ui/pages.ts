@@ -97,32 +97,58 @@ export function homePage(opts: {
     <section class="card" id="heat-app">
       ${statusNote}
       <form id="heat-form" class="heat-controls">
-        <label class="field">Start
-          <input id="heat-start" type="date" required />
-        </label>
-        <label class="field">End
-          <input id="heat-end" type="date" required />
-        </label>
-        <label class="field">Group
-          <select id="heat-group">
-            <option value="">Add a group</option>
-          </select>
-        </label>
-        <label class="field">People
-          <select id="heat-person">
-            <option value="">Add a person</option>
-          </select>
-        </label>
+        <div class="heat-row">
+          <div class="range-picker" id="heat-range">
+            <button type="button" class="range-trigger" id="heat-range-trigger" aria-expanded="false" aria-haspopup="dialog" aria-controls="heat-range-popover">
+              <svg class="icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.4" y="4.4" width="13.2" height="12" rx="1.6"/><path d="M3.4 8.2h13.2M7 3.2v2.4M13 3.2v2.4"/></svg>
+              <span id="heat-range-label">Next week</span>
+              <svg class="range-chevron" viewBox="0 0 12 8" aria-hidden="true" width="12" height="8"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="range-popover" id="heat-range-popover" hidden role="dialog" aria-label="Date range">
+              <div class="range-presets" role="listbox" aria-label="Range presets">
+                <button type="button" class="range-preset is-active" data-preset="next" aria-selected="true">Next week</button>
+                <button type="button" class="range-preset" data-preset="custom" aria-selected="false">Custom range</button>
+              </div>
+              <div class="range-body">
+                <div class="range-fields">
+                  <label class="field">Start
+                    <input id="heat-range-start" type="text" inputmode="text" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <label class="field">End
+                    <input id="heat-range-end" type="text" inputmode="text" autocomplete="off" spellcheck="false" />
+                  </label>
+                </div>
+                <p id="heat-range-note" class="hint" hidden></p>
+                <div class="range-months" id="heat-months"></div>
+                <div class="range-actions">
+                  <button type="button" class="btn" id="heat-range-cancel">Cancel</button>
+                  <button type="button" class="btn btn-primary" id="heat-range-apply">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="heat-row">
+          <label class="field">Group
+            <select id="heat-group">
+              <option value="">Add a group</option>
+            </select>
+          </label>
+          <label class="field">People
+            <select id="heat-person">
+              <option value="">Add a person</option>
+            </select>
+          </label>
+        </div>
       </form>
       <div id="heat-people" class="heat-chips"></div>
       <div class="heat-legend">
         <span id="heat-legend-min">0/0 Available</span>
         <span id="heat-scale" class="heat-scale"></span>
         <span id="heat-legend-max">0/0 Available</span>
-        <span class="heat-unshared-key" aria-hidden="true"></span>
-        <span>Not shared</span>
+        <span class="heat-key"><span class="heat-unshared-key" aria-hidden="true"></span> Not shared</span>
       </div>
-      <p class="hint" id="heat-rules">Hover a time to see who is free and who is busy. Weekdays only, 9:00 AM–5:00 PM Central, at most five business days.</p>
+      <p class="hint" id="heat-rules">Hover or tap a time to see who is free, busy, or not shared. 9:00 AM–5:00 PM Central. Next week follows the saved day count. Custom ranges can cover up to 14 days.</p>
       <div id="heat-msg" class="banner" hidden></div>
       <div id="heat-create" class="heat-create" hidden>
         <label class="field">Title

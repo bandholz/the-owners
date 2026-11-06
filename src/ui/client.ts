@@ -250,8 +250,6 @@ function initHeat() {
   if (!root) return;
   const peopleEl = document.getElementById("heat-people");
   const groupEl = document.getElementById("heat-group");
-  const start = document.getElementById("heat-start");
-  const end = document.getElementById("heat-end");
   const msg = document.getElementById("heat-msg");
   const gridEl = document.getElementById("heat-grid");
   const hover = document.getElementById("heat-hover");
@@ -277,6 +275,15 @@ function initHeat() {
   let drag = null;
   let heatTimer = null;
   let heatAbort = null;
+  let committedStart = "";
+  let committedEnd = "";
+  let rangePreset = "next";
+  let draftStart = "";
+  let draftEnd = "";
+  let draftPreset = "next";
+  let pickingEnd = false;
+  let viewMonth = "";
+  let hoverFromTouch = false;
 
   function includedDayCount(startDate, endDate) {
     if (!startDate || !endDate || startDate > endDate) return null;
@@ -314,29 +321,354 @@ function initHeat() {
     if (data && typeof data.defaultGroupName === "string") {
       heatSettings.defaultGroupName = data.defaultGroupName;
     }
-    const span = heatSettings.showWeekends ? "days" : "weekdays";
-    const weekend = heatSettings.showWeekends ? "including weekends" : "weekdays only";
+    const unit = heatSettings.showWeekends
+      ? "days, including weekends"
+      : "business days, skipping Saturday and Sunday";
     if (rulesEl) {
       rulesEl.textContent =
-        "Hover a time to see who is free and who is busy. " +
+        "Hover or tap a time to see who is free, busy, or not shared. " +
         formatMinutes(heatSettings.windowStartMinutes) +
         "–" +
         formatMinutes(heatSettings.windowEndMinutes) +
-        " Central, " +
-        weekend +
-        ", at most " +
+        " Central. Next week follows the saved count of " +
         heatSettings.dayCount +
         " " +
-        span +
-        ".";
+        unit +
+        ". Custom ranges can cover up to 14 days.";
     }
-    if (start && !start.value) {
-      const from = heatSettings.showWeekends ? chicagoToday() : rollToWeekday(chicagoToday());
-      start.value = from;
-      end.value = heatSettings.showWeekends
-        ? addDays(from, Math.max(0, heatSettings.dayCount - 1))
-        : addBusinessDays(from, Math.max(0, heatSettings.dayCount - 1));
+    if (rangePreset === "next" || !committedStart) {
+      const preset = nextWeekRange();
+      committedStart = preset.start;
+      committedEnd = preset.end;
+      rangePreset = "next";
+      updateRangeTrigger();
     }
+  }
+
+  function isoParts(iso) {
+    const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(iso || "");
+    if (!m) return null;
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    const day = Number(m[3]);
+    const dt = new Date(Date.UTC(year, month - 1, day));
+    if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
+      return null;
+    }
+    return { year: year, month: month, day: day };
+  }
+
+  function formatDay(iso) {
+    const parts = isoParts(iso);
+    if (!parts) return "";
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12)));
+  }
+
+  function monthTitle(iso) {
+    const parts = isoParts(iso);
+    if (!parts) return "";
+    return new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(Date.UTC(parts.year, parts.month - 1, 1, 12)));
+  }
+
+  function monthKey(iso) {
+    const parts = isoParts(iso);
+    if (!parts) return "";
+    const mo = parts.month < 10 ? "0" + parts.month : String(parts.month);
+    return parts.year + "-" + mo + "-01";
+  }
+
+  function shiftMonth(iso, delta) {
+    const parts = isoParts(iso);
+    if (!parts) return iso;
+    const dt = new Date(Date.UTC(parts.year, parts.month - 1 + delta, 1));
+    const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    return dt.getUTCFullYear() + "-" + mo + "-01";
+  }
+
+  const MONTH_INDEX = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+  };
+
+  function parseDay(text) {
+    const raw = String(text || "").trim();
+    let m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(raw);
+    if (m && isoParts(m[0])) return m[0];
+    m = /^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/.exec(raw);
+    if (m) {
+      const iso = m[3] + "-" + String(m[1]).padStart(2, "0") + "-" + String(m[2]).padStart(2, "0");
+      if (isoParts(iso)) return iso;
+    }
+    m = /^([A-Za-z]+)\\.?\\s+(\\d{1,2}),\\s*(\\d{4})$/.exec(raw);
+    if (m && MONTH_INDEX[m[1].toLowerCase()]) {
+      const iso = m[3] + "-" + String(MONTH_INDEX[m[1].toLowerCase()]).padStart(2, "0") + "-" + String(m[2]).padStart(2, "0");
+      if (isoParts(iso)) return iso;
+    }
+    return "";
+  }
+
+  function nextWeekRange() {
+    const count = heatSettings.dayCount || 5;
+    const today = chicagoToday();
+    const from = heatSettings.showWeekends ? today : rollToWeekday(today);
+    const end = heatSettings.showWeekends
+      ? addDays(from, Math.max(0, count - 1))
+      : addBusinessDays(from, Math.max(0, count - 1));
+    return { start: from, end: end };
+  }
+
+  function updateRangeTrigger() {
+    const label = document.getElementById("heat-range-label");
+    if (!label) return;
+    if (rangePreset === "next") label.textContent = "Next week";
+    else if (committedStart && committedEnd) {
+      label.textContent = formatDay(committedStart) + " – " + formatDay(committedEnd);
+    } else label.textContent = "Custom range";
+  }
+
+  function setRangeNote(text) {
+    const note = document.getElementById("heat-range-note");
+    if (!note) return;
+    note.hidden = !text;
+    note.textContent = text || "";
+  }
+
+  function renderMonths() {
+    const host = document.getElementById("heat-months");
+    if (!host) return;
+    clear(host);
+    if (!viewMonth) viewMonth = monthKey(draftStart || chicagoToday());
+    [0, 1].forEach((offset) => {
+      const monthIso = shiftMonth(viewMonth, offset);
+      const parts = isoParts(monthIso);
+      const month = h("div", { class: "range-month" });
+      const head = h("div", { class: "range-month-head" });
+      if (offset === 0) {
+        const prev = h("button", { type: "button", class: "range-nav", text: "‹", "aria-label": "Previous month" });
+        prev.addEventListener("click", () => {
+          viewMonth = shiftMonth(viewMonth, -1);
+          renderMonths();
+        });
+        head.append(prev);
+      } else head.append(h("span", { class: "range-nav-spacer" }));
+      head.append(h("span", { text: monthTitle(monthIso) }));
+      if (offset === 1) {
+        const next = h("button", { type: "button", class: "range-nav", text: "›", "aria-label": "Next month" });
+        next.addEventListener("click", () => {
+          viewMonth = shiftMonth(viewMonth, 1);
+          renderMonths();
+        });
+        head.append(next);
+      } else head.append(h("span", { class: "range-nav-spacer" }));
+      month.append(head);
+      const dow = h("div", { class: "range-dow" });
+      ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((name) => dow.append(h("span", { text: name })));
+      month.append(dow);
+      const days = h("div", { class: "range-days" });
+      const firstDow = weekdayIndex(monthIso);
+      let cursor = addDays(monthIso, -(firstDow || 0));
+      for (let i = 0; i < 42; i += 1) {
+        const iso = cursor;
+        const info = isoParts(iso);
+        const inMonth = info && parts && info.month === parts.month;
+        const inRange = draftStart && draftEnd && iso >= draftStart && iso <= draftEnd;
+        const isStart = iso === draftStart;
+        const isEnd = iso === draftEnd;
+        let cls = "range-day";
+        if (!inMonth) cls += " is-outside";
+        if (inRange) cls += " is-inrange";
+        if (isStart) cls += " is-start";
+        if (isEnd) cls += " is-end";
+        if (isStart || isEnd) cls += " is-endpoint";
+        const btn = h("button", { type: "button", class: cls, "aria-label": formatDay(iso) });
+        btn.setAttribute("data-date", iso);
+        if (isStart || isEnd) btn.setAttribute("aria-pressed", "true");
+        btn.append(h("span", { text: info ? String(info.day) : "" }));
+        btn.addEventListener("click", () => pickDay(iso));
+        days.append(btn);
+        cursor = addDays(cursor, 1);
+      }
+      month.append(days);
+      host.append(month);
+    });
+  }
+
+  function syncRangeDraft() {
+    const startField = document.getElementById("heat-range-start");
+    const endField = document.getElementById("heat-range-end");
+    if (startField) startField.value = formatDay(draftStart);
+    if (endField) endField.value = formatDay(draftEnd);
+    document.querySelectorAll(".range-preset").forEach((btn) => {
+      const on = btn.getAttribute("data-preset") === draftPreset;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    renderMonths();
+  }
+
+  function clampDraft() {
+    if (draftPreset !== "custom") {
+      setRangeNote("");
+      return;
+    }
+    const span = inclusiveDaySpan(draftStart, draftEnd);
+    if (span != null && span > 14) {
+      draftEnd = addDays(draftStart, 13);
+      setRangeNote("Custom ranges stop at 14 days.");
+      return;
+    }
+    setRangeNote("");
+  }
+
+  function readRangeFields() {
+    const startField = document.getElementById("heat-range-start");
+    const endField = document.getElementById("heat-range-end");
+    const parsedStart = parseDay(startField && startField.value);
+    const parsedEnd = parseDay(endField && endField.value);
+    if (parsedStart) draftStart = parsedStart;
+    if (parsedEnd) draftEnd = parsedEnd;
+    if (draftStart && draftEnd && draftEnd < draftStart) {
+      const swap = draftStart;
+      draftStart = draftEnd;
+      draftEnd = swap;
+    }
+  }
+
+  function pickDay(iso) {
+    draftPreset = "custom";
+    if (!pickingEnd || !draftStart) {
+      draftStart = iso;
+      draftEnd = iso;
+      pickingEnd = true;
+    } else if (iso < draftStart) {
+      draftEnd = draftStart;
+      draftStart = iso;
+      pickingEnd = false;
+    } else {
+      draftEnd = iso;
+      pickingEnd = false;
+    }
+    clampDraft();
+    syncRangeDraft();
+  }
+
+  function openRange() {
+    const pop = document.getElementById("heat-range-popover");
+    const trigger = document.getElementById("heat-range-trigger");
+    if (!pop || !trigger) return;
+    draftStart = committedStart;
+    draftEnd = committedEnd;
+    draftPreset = rangePreset;
+    pickingEnd = false;
+    viewMonth = monthKey(draftStart || chicagoToday());
+    setRangeNote("");
+    syncRangeDraft();
+    pop.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+  }
+
+  function closeRange(revert) {
+    const pop = document.getElementById("heat-range-popover");
+    const trigger = document.getElementById("heat-range-trigger");
+    if (pop) pop.hidden = true;
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (revert) {
+      draftStart = committedStart;
+      draftEnd = committedEnd;
+      draftPreset = rangePreset;
+      setRangeNote("");
+    }
+  }
+
+  function applyRange() {
+    readRangeFields();
+    if (draftPreset === "next") {
+      const preset = nextWeekRange();
+      draftStart = preset.start;
+      draftEnd = preset.end;
+    }
+    if (!draftStart || !draftEnd || draftStart > draftEnd) {
+      setRangeNote("Choose a start date on or before the end date.");
+      return;
+    }
+    clampDraft();
+    committedStart = draftStart;
+    committedEnd = draftEnd;
+    rangePreset = draftPreset;
+    updateRangeTrigger();
+    closeRange(false);
+    scheduleHeat();
+  }
+
+  function bindRangePicker() {
+    const trigger = document.getElementById("heat-range-trigger");
+    const pop = document.getElementById("heat-range-popover");
+    const root = document.getElementById("heat-range");
+    const form = document.getElementById("heat-form");
+    if (form) form.addEventListener("submit", (e) => e.preventDefault());
+    if (!committedStart) {
+      const preset = nextWeekRange();
+      committedStart = preset.start;
+      committedEnd = preset.end;
+      rangePreset = "next";
+      updateRangeTrigger();
+    }
+    if (!trigger || !pop) return;
+    trigger.addEventListener("click", () => {
+      if (pop.hidden) openRange();
+      else closeRange(true);
+    });
+    const cancel = document.getElementById("heat-range-cancel");
+    const apply = document.getElementById("heat-range-apply");
+    if (cancel) cancel.addEventListener("click", () => closeRange(true));
+    if (apply) apply.addEventListener("click", applyRange);
+    document.querySelectorAll(".range-preset").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const preset = btn.getAttribute("data-preset");
+        if (preset === "next") {
+          const range = nextWeekRange();
+          draftPreset = "next";
+          draftStart = range.start;
+          draftEnd = range.end;
+          pickingEnd = false;
+          viewMonth = monthKey(draftStart);
+          setRangeNote("");
+        } else {
+          draftPreset = "custom";
+          setRangeNote("");
+        }
+        syncRangeDraft();
+      });
+    });
+    ["heat-range-start", "heat-range-end"].forEach((id) => {
+      const field = document.getElementById(id);
+      if (!field) return;
+      field.addEventListener("change", () => {
+        draftPreset = "custom";
+        readRangeFields();
+        clampDraft();
+        syncRangeDraft();
+      });
+    });
+    document.addEventListener("mousedown", (e) => {
+      if (pop.hidden) return;
+      if (root && root.contains(e.target)) return;
+      closeRange(true);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && pop && !pop.hidden) closeRange(true);
+    });
   }
 
   function selectedGroups() {
@@ -495,8 +827,9 @@ function initHeat() {
     hideHover();
     const total = typeof data.total === "number" ? data.total : (data.people || []).length;
     setLegend(total);
+    const keepWeekends = data.includeWeekends === true || !!heatSettings.showWeekends;
     const days = (Array.isArray(data.days) ? data.days : []).filter((day) => {
-      if (heatSettings.showWeekends) return true;
+      if (keepWeekends) return true;
       const name = day.weekday || "";
       return name !== "Sat" && name !== "Sun";
     });
@@ -511,6 +844,7 @@ function initHeat() {
       byKey[cell.day + ":" + cell.minutes] = cell;
     });
     const table = h("table", { class: "heat-table" });
+    table.style.minWidth = (64 + days.length * 72) + "px";
     const headRow = h("tr", {});
     headRow.append(h("th", { class: "heat-time" }));
     days.forEach((day) => {
@@ -566,10 +900,17 @@ function initHeat() {
             ". Free: " + (freeNames.join(", ") || "no one") +
             ". Busy: " + (busyNames.join(", ") || "no one"),
         );
+        button._heat = enriched;
         button.addEventListener("mouseenter", () => showHover(enriched, button));
         button.addEventListener("focus", () => showHover(enriched, button));
-        button.addEventListener("mouseleave", hideHover);
-        button.addEventListener("blur", hideHover);
+        button.addEventListener("mouseleave", () => {
+          if (hoverFromTouch) return;
+          hideHover();
+        });
+        button.addEventListener("blur", () => {
+          if (hoverFromTouch) return;
+          hideHover();
+        });
         const td = h("td", {});
         td.append(button);
         tr.append(td);
@@ -681,6 +1022,12 @@ function initHeat() {
     host.addEventListener("pointerdown", (e) => {
       const button = e.target.closest(".heat-cell");
       if (!button || e.button !== 0) return;
+      if (e.pointerType === "touch") {
+        hoverFromTouch = true;
+        if (button._heat) showHover(button._heat, button);
+        return;
+      }
+      hoverFromTouch = false;
       e.preventDefault();
       const info = cellFromButton(button);
       drag = {
@@ -839,25 +1186,42 @@ function initHeat() {
       setBanner(msg, "bad", "Calendar not connected for " + missing.map((p) => p.email).join(", ") + ".");
       return;
     }
-    const included = includedDayCount(start.value, end.value);
-    if (included == null) {
+    if (!committedStart || !committedEnd || committedStart > committedEnd) {
       setBanner(msg, "bad", "Choose a start date on or before the end date.");
       return;
     }
-    if (included === 0) {
-      setBanner(msg, "bad", heatSettings.showWeekends ? "Choose a date range." : "That range has no weekdays.");
-      return;
-    }
-    if (included > heatSettings.dayCount) {
-      const unit = heatSettings.showWeekends ? "days" : "business days";
-      setBanner(msg, "bad", "Choose " + heatSettings.dayCount + " " + unit + " or fewer.");
-      return;
+    const custom = rangePreset === "custom";
+    if (custom) {
+      const span = inclusiveDaySpan(committedStart, committedEnd);
+      if (span == null) {
+        setBanner(msg, "bad", "Choose a start date on or before the end date.");
+        return;
+      }
+      if (span > 14) {
+        setBanner(msg, "bad", "Custom ranges stop at 14 days.");
+        return;
+      }
+    } else {
+      const included = includedDayCount(committedStart, committedEnd);
+      if (included == null) {
+        setBanner(msg, "bad", "Choose a start date on or before the end date.");
+        return;
+      }
+      if (included === 0) {
+        setBanner(msg, "bad", heatSettings.showWeekends ? "Choose a date range." : "That range has no weekdays.");
+        return;
+      }
+      if (included > heatSettings.dayCount) {
+        const unit = heatSettings.showWeekends ? "days" : "business days";
+        setBanner(msg, "bad", "Choose " + heatSettings.dayCount + " " + unit + " or fewer.");
+        return;
+      }
     }
     let rangeStart = "";
     let rangeEnd = "";
     try {
-      rangeStart = zonedWallTimeToIso(start.value, 0, 0, tz);
-      rangeEnd = zonedWallTimeToIso(addDays(end.value, 1), 0, 0, tz);
+      rangeStart = zonedWallTimeToIso(committedStart, 0, 0, tz);
+      rangeEnd = zonedWallTimeToIso(addDays(committedEnd, 1), 0, 0, tz);
     } catch (err) {
       setBanner(msg, "bad", "Those dates could not be read.");
       return;
@@ -870,6 +1234,7 @@ function initHeat() {
       userIds: sel.picked.map((person) => person.id),
       rangeStart: rangeStart,
       rangeEnd: rangeEnd,
+      includeWeekends: custom ? true : !!heatSettings.showWeekends,
     };
     loadMe(false).then((me) => fetch("/api/availability", {
       method: "POST",
@@ -900,8 +1265,13 @@ function initHeat() {
     heatTimer = setTimeout(loadHeat, 200);
   }
 
-  [start, end].forEach((el) => {
-    el.addEventListener("change", scheduleHeat);
+  bindRangePicker();
+  document.addEventListener("pointerdown", (e) => {
+    if (!hoverFromTouch) return;
+    const target = e.target;
+    if (target && target.closest && target.closest(".heat-cell")) return;
+    hoverFromTouch = false;
+    hideHover();
   });
   if (groupEl) {
     groupEl.addEventListener("change", () => {
@@ -1473,6 +1843,33 @@ function initShareWindow() {
   });
 }
 
+function initNav() {
+  const toggle = document.getElementById("nav-toggle");
+  const scrim = document.getElementById("nav-scrim");
+  const nav = document.getElementById("app-nav");
+  if (!toggle || !nav) return;
+  function setOpen(open) {
+    document.body.classList.toggle("nav-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    if (scrim) scrim.hidden = !open;
+  }
+  toggle.addEventListener("click", () => {
+    setOpen(!document.body.classList.contains("nav-open"));
+  });
+  if (scrim) scrim.addEventListener("click", () => setOpen(false));
+  nav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => setOpen(false));
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const pop = document.getElementById("heat-range-popover");
+    if (pop && !pop.hidden) return;
+    setOpen(false);
+  });
+}
+
+initNav();
 if (page === "home" || page === "calendars" || page === "delete") initHome();
 if (page === "home") initHeat();
 if (page === "calendars") initCalendars();

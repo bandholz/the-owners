@@ -11,7 +11,7 @@ Access is **not enabled** on account `d9eebda3928171a0baf30eaffb2c03be` as of No
 
 ## Recommended shape (Worker-level or hostname)
 
-Protect staging Worker / `scheduler-staging.bandholz.com` for all traffic + previews.
+Protect staging Worker / `scheduler-staging.sovrnty.com` for all traffic + previews.
 
 Create one Access **allow** policy whose include list will be overwritten by sync (start with Eric's admin email). Note the **application id** and **policy id** for secrets.
 

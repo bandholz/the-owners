@@ -15,7 +15,7 @@ Ground rules: preview/staging only; no production; no real host calendars until 
 
 Still pick:
 
-- [ ] **Domain base.** Proposed: `bandholz.com` → `scheduler-staging.bandholz.com` / `scheduler.bandholz.com` (+ Workers previews on `beardbrand` behind Access).
+- [ ] **Domain base.** Proposed: `sovrnty.com` → `scheduler-staging.sovrnty.com` / `scheduler.sovrnty.com` (+ Workers previews on `beardbrand` behind Access).
 - [ ] **Repo name.** Proposed: `bandholz/operators-the-owners-scheduler`.
 - [ ] **First admin email** (exact Google account for seed admin).
 
@@ -49,14 +49,14 @@ Still pick:
 - [ ] Type **Web application**, name `operators-scheduler-web`
 - [ ] **Authorized JavaScript origins:**
   - `http://localhost:8787`
-  - `https://scheduler-staging.bandholz.com` *(or your domain)*
-  - `https://scheduler.bandholz.com` *(prod later)*
+  - `https://scheduler-staging.sovrnty.com` *(or your domain)*
+  - `https://scheduler.sovrnty.com` *(prod later)*
   - Preview origins when known
 - [ ] **Authorized redirect URIs:**
   - `http://localhost:8787/auth/google/callback`
   - `http://localhost:8787/auth/google/calendar/callback`
-  - `https://scheduler-staging.bandholz.com/auth/google/callback`
-  - `https://scheduler-staging.bandholz.com/auth/google/calendar/callback`
+  - `https://scheduler-staging.sovrnty.com/auth/google/callback`
+  - `https://scheduler-staging.sovrnty.com/auth/google/calendar/callback`
   - Production + preview pairs when ready
 - [ ] Give Client ID/Secret via Grok Bot **secret-request** as `SCHEDULER_GOOGLE_CLIENT_ID` / `SCHEDULER_GOOGLE_CLIENT_SECRET` — do not overwrite Voice secrets; do not paste into Slack.
 
@@ -84,7 +84,7 @@ Account `d9eebda3928171a0baf30eaffb2c03be` (workers subdomain `beardbrand`).
 
 - [ ] **Enable Zero Trust / Access** (API today: not enabled).
 - [ ] DNS for staging hostname when domain confirmed.
-- [ ] Widen `CLOUDFLARE_API_TOKEN` (or add scheduler token): Workers Edit, **D1 Edit**, **Access apps/policies Edit**, Account read, optional DNS on `bandholz.com`, optional R2 for backups. Current token: Workers/zones OK; **D1 fail**; Access not enabled.
+- [ ] Widen `CLOUDFLARE_API_TOKEN` (or add scheduler token): Workers Edit, **D1 Edit**, **Access apps/policies Edit**, Account read, optional DNS on `sovrnty.com`, optional R2 for backups. Current token: Workers/zones OK; **D1 fail**; Access not enabled.
 - [ ] After Access app + allow policy exist: give Slattery `CF_ACCESS_APP_ID` + `CF_ACCESS_POLICY_ID` (and token) so invite sync can be turned on with `CF_ACCESS_SYNC_ENABLED=true`. Until then sync stays **skipped** in code.
 - [ ] Approve **staging** D1/Worker/Access create explicitly before any create/deploy.
 

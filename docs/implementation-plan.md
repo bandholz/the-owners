@@ -46,12 +46,12 @@ D1 (operators_scheduler_{preview|staging|prod})
 | Staging | merge to `main` | `scheduler-staging.<domain>` | staging DB |
 | Production | semver tag only | `scheduler.<domain>` | prod DB — **not deployed in this phase** |
 
-Proposed domain base: **`bandholz.com`** (already on CF account `d9eebda3928171a0baf30eaffb2c03be`). Alternates: operators-network domain if Eric prefers brand separation.
+Proposed domain base: **`sovrnty.com`** (already on CF account `d9eebda3928171a0baf30eaffb2c03be`). Alternates: operators-network domain if Eric prefers brand separation.
 
 **Workers account notes (read-only probe, Nov 5 2026 CT):**
 - Account `d9eebda3928171a0baf30eaffb2c03be`; workers subdomain `beardbrand`.
 - Existing Worker: `beardbrand-voice-proxy` only.
-- Zones include `bandholz.com`, `beardbrand.com`, etc.
+- Zones include `sovrnty.com`, `beardbrand.com`, etc.
 - **Cloudflare Access is not enabled** on this account yet (API: `access.api.error.not_enabled`).
 - Current `CLOUDFLARE_API_TOKEN`: verifies active; can list Workers + zones; **cannot** list D1 (`Authentication error`); **cannot** manage Access until Access is enabled and token gains Zero Trust / Access edit perms; cannot read its own token policies (`9109`).
 
@@ -291,7 +291,7 @@ See also open questions in the report / checklist.
 6. **Groups** — "optional groups" mentioned; UI depth for v1 unclear.
 7. **Guest role** — invited but maybe no calendar? Can they run find-time?
 8. **Backup mirror** — "existing `bandholz/grok-bot-backup` routine" — confirm it can take a new repo path.
-9. **Workers subdomain** is `beardbrand` — fine for `*.beardbrand.workers.dev` previews, but custom hostnames on `bandholz.com` preferred for staging/prod branding.
+9. **Workers subdomain** is `beardbrand` — fine for `*.beardbrand.workers.dev` previews, but custom hostnames on `sovrnty.com` preferred for staging/prod branding.
 
 ---
 

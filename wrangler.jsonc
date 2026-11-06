@@ -47,7 +47,7 @@
         }
       ],
       "routes": [
-        { "pattern": "scheduler-staging.bandholz.com", "custom_domain": true }
+        { "pattern": "scheduler-staging.sovrnty.com", "custom_domain": true }
       ]
     },
     "production": {
@@ -67,7 +67,7 @@
         }
       ],
       "routes": [
-        { "pattern": "scheduler.bandholz.com", "custom_domain": true }
+        { "pattern": "scheduler.sovrnty.com", "custom_domain": true }
       ]
     }
   }

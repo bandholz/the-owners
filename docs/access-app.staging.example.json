@@ -2,7 +2,7 @@
   "_comment": "Example only. Do not POST. Replace emails and worker_id after Eric approves.",
   "type": "self_hosted",
   "name": "operators-scheduler-staging",
-  "domain": "scheduler-staging.bandholz.com",
+  "domain": "scheduler-staging.sovrnty.com",
   "session_duration": "24h",
   "auto_redirect_to_identity": true,
   "policies": [

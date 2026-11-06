@@ -32,7 +32,15 @@
   "env": {
     "staging": {
       "name": "operators-scheduler-staging",
+      "workers_dev": false,
+      "preview_urls": false,
       "vars": {
+        "APP_BASE_URL": "https://scheduler-staging.sovrnty.com",
+        "CF_ACCESS_SYNC_ENABLED": "true",
+        "CF_ACCOUNT_ID": "d9eebda3928171a0baf30eaffb2c03be",
+        "CF_ACCESS_APP_ID": "f6de3ae1-14fa-4fe4-a966-1e3687079411",
+        "CF_ACCESS_POLICY_ID": "58a7fa28-c93f-4f70-a9c1-2e64bdab23af",
+        "CF_ACCESS_POLICY_NAME": "operators-scheduler-invite-list",
         "APP_NAME": "Operators: The Owners Scheduler",
         "DEFAULT_TIMEZONE": "America/Chicago",
         "ENVIRONMENT": "staging",
@@ -42,7 +50,7 @@
         {
           "binding": "DB",
           "database_name": "operators-scheduler-staging",
-          "database_id": "REPLACE_AFTER_ERIC_APPROVES_STAGING_D1",
+          "database_id": "54c6668b-0db6-461e-be3d-2fa550e99e09",
           "migrations_dir": "migrations"
         }
       ],

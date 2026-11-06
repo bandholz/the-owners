@@ -29,6 +29,11 @@ import {
   requireCsrf,
   requireUser,
 } from "../middleware/session";
+import {
+  getHeatmapSettings,
+  normalizeHeatmapSettings,
+  saveHeatmapSettings,
+} from "../db/heatmap-settings";
 
 const ROLES: Role[] = ["host", "producer", "guest", "admin"];
 
@@ -145,6 +150,39 @@ export async function handleAdmin(
   if (request.method !== "GET" && request.method !== "HEAD") {
     const csrfErr = requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
+  }
+
+  if (path === "/api/admin/heatmap-settings" && request.method === "GET") {
+    return jsonOk(await getHeatmapSettings(env.DB));
+  }
+
+  if (path === "/api/admin/heatmap-settings" && request.method === "POST") {
+    const body = (await request.json()) as {
+      dayCount?: unknown;
+      showWeekends?: unknown;
+      windowStartMinutes?: unknown;
+      windowEndMinutes?: unknown;
+    };
+    const parsed = normalizeHeatmapSettings(body);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    try {
+      await saveHeatmapSettings(env.DB, parsed.settings, authed.user.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("no such table")) {
+        return jsonError(
+          503,
+          "heatmap settings are not available until the database migration is applied",
+        );
+      }
+      throw err;
+    }
+    await writeAudit(env, {
+      actorUserId: authed.user.id,
+      action: "heatmap_settings",
+      meta: { ...parsed.settings },
+    });
+    return jsonOk(parsed.settings);
   }
 
   if (path === "/api/admin/users" && request.method === "GET") {

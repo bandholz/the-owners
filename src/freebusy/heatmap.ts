@@ -71,6 +71,10 @@ export interface ZoneDay {
   day: number;
 }
 
+export const BUSINESS_DAY_MAX = 5;
+export const HEAT_WINDOW_START = 9 * 60;
+export const HEAT_WINDOW_END = 17 * 60;
+
 /** Calendar days in [rangeStart, rangeEnd), in the given timezone. */
 export function zoneDayKeys(
   rangeStart: Date,
@@ -92,6 +96,41 @@ export function zoneDayKeys(
     cursor += 12 * 3600 * 1000;
   }
   return out;
+}
+
+export function isWeekend(
+  year: number,
+  month: number,
+  day: number,
+  timeZone: string,
+): boolean {
+  const noon = zonedLocalToUtc(year, month, day, 12, 0, 0, timeZone);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(noon);
+  return weekday === "Sat" || weekday === "Sun";
+}
+
+/** Weekdays in [rangeStart, rangeEnd). Saturday and Sunday are omitted. */
+export function businessDayKeys(
+  rangeStart: Date,
+  rangeEnd: Date,
+  timeZone: string,
+): ZoneDay[] {
+  return includedDayKeys(rangeStart, rangeEnd, timeZone, false);
+}
+
+/** Days drawn on the heatmap. Weekends stay out unless showWeekends is set. */
+export function includedDayKeys(
+  rangeStart: Date,
+  rangeEnd: Date,
+  timeZone: string,
+  showWeekends: boolean,
+): ZoneDay[] {
+  const days = zoneDayKeys(rangeStart, rangeEnd, timeZone);
+  if (showWeekends) return days;
+  return days.filter((d) => !isWeekend(d.year, d.month, d.day, timeZone));
 }
 
 function pad(n: number): string {
@@ -154,11 +193,17 @@ export function buildAvailabilityGrid(input: {
   windowStartMinutes: number;
   windowEndMinutes: number;
   slotMinutes?: number;
+  showWeekends?: boolean;
   timeZone: string;
 }): AvailabilityGrid {
   const slotMinutes = input.slotMinutes ?? 15;
   const timeZone = input.timeZone;
-  const days = zoneDayKeys(input.rangeStart, input.rangeEnd, timeZone).map(
+  const days = includedDayKeys(
+    input.rangeStart,
+    input.rangeEnd,
+    timeZone,
+    input.showWeekends === true,
+  ).map(
     (d) => {
       const noon = zonedLocalToUtc(d.year, d.month, d.day, 12, 0, 0, timeZone);
       const weekday = new Intl.DateTimeFormat("en-US", {

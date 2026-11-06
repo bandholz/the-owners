@@ -200,6 +200,50 @@ function initHome() {
   });
 }
 
+function weekdayIndex(iso) {
+  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(iso);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
+  return dt.getUTCDay();
+}
+
+function rollToWeekday(iso) {
+  let cursor = iso;
+  let guard = 0;
+  while (guard < 7) {
+    const day = weekdayIndex(cursor);
+    if (day !== 0 && day !== 6) return cursor;
+    cursor = addDays(cursor, 1);
+    guard += 1;
+  }
+  return iso;
+}
+
+function addBusinessDays(iso, count) {
+  let cursor = iso;
+  let left = count;
+  while (left > 0) {
+    cursor = addDays(cursor, 1);
+    const day = weekdayIndex(cursor);
+    if (day !== 0 && day !== 6) left -= 1;
+  }
+  return cursor;
+}
+
+function businessDayCount(startDate, endDate) {
+  if (!startDate || !endDate || startDate > endDate) return null;
+  let count = 0;
+  let cursor = startDate;
+  let guard = 0;
+  while (cursor <= endDate && guard < 40) {
+    const day = weekdayIndex(cursor);
+    if (day !== 0 && day !== 6) count += 1;
+    cursor = addDays(cursor, 1);
+    guard += 1;
+  }
+  return count;
+}
+
 function initHeat() {
   const root = document.getElementById("heat-app");
   if (!root) return;
@@ -207,8 +251,6 @@ function initHeat() {
   const groupEl = document.getElementById("heat-group");
   const start = document.getElementById("heat-start");
   const end = document.getElementById("heat-end");
-  const winStartEl = document.getElementById("heat-window-start");
-  const winEndEl = document.getElementById("heat-window-end");
   const msg = document.getElementById("heat-msg");
   const gridEl = document.getElementById("heat-grid");
   const hover = document.getElementById("heat-hover");
@@ -216,14 +258,78 @@ function initHeat() {
   const legendMin = document.getElementById("heat-legend-min");
   const legendMax = document.getElementById("heat-legend-max");
   if (scale) scale.style.background = "linear-gradient(90deg," + HEAT_STOPS.join(",") + ")";
-  const today = chicagoToday();
-  if (start && !start.value) start.value = today;
-  if (end && !end.value) end.value = addDays(today, 4);
 
+  const personEl = document.getElementById("heat-person");
+  const rulesEl = document.getElementById("heat-rules");
+  let heatSettings = {
+    dayCount: 5,
+    showWeekends: false,
+    windowStartMinutes: 9 * 60,
+    windowEndMinutes: 17 * 60,
+  };
   let people = [];
   let groups = [];
+  let pickedIds = {};
   let heatTimer = null;
   let heatAbort = null;
+
+  function includedDayCount(startDate, endDate) {
+    if (!startDate || !endDate || startDate > endDate) return null;
+    let count = 0;
+    let cursor = startDate;
+    let guard = 0;
+    while (cursor <= endDate && guard < 60) {
+      const day = weekdayIndex(cursor);
+      if (heatSettings.showWeekends || (day !== 0 && day !== 6)) count += 1;
+      cursor = addDays(cursor, 1);
+      guard += 1;
+    }
+    return count;
+  }
+
+  function formatMinutes(minutes) {
+    const h24 = Math.floor(minutes / 60) % 24;
+    const min = minutes % 60;
+    const suffix = h24 >= 12 ? "PM" : "AM";
+    let h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    const mm = min < 10 ? "0" + min : String(min);
+    return h12 + ":" + mm + " " + suffix;
+  }
+
+  function applyHeatSettings(data) {
+    if (data && Number.isInteger(data.dayCount)) heatSettings.dayCount = data.dayCount;
+    if (data) heatSettings.showWeekends = !!data.showWeekends;
+    if (data && Number.isInteger(data.windowStartMinutes)) {
+      heatSettings.windowStartMinutes = data.windowStartMinutes;
+    }
+    if (data && Number.isInteger(data.windowEndMinutes)) {
+      heatSettings.windowEndMinutes = data.windowEndMinutes;
+    }
+    const span = heatSettings.showWeekends ? "days" : "weekdays";
+    const weekend = heatSettings.showWeekends ? "including weekends" : "weekdays only";
+    if (rulesEl) {
+      rulesEl.textContent =
+        "Hover a time to see who is free and who is busy. " +
+        formatMinutes(heatSettings.windowStartMinutes) +
+        "–" +
+        formatMinutes(heatSettings.windowEndMinutes) +
+        " Central, " +
+        weekend +
+        ", at most " +
+        heatSettings.dayCount +
+        " " +
+        span +
+        ".";
+    }
+    if (start && !start.value) {
+      const from = heatSettings.showWeekends ? chicagoToday() : rollToWeekday(chicagoToday());
+      start.value = from;
+      end.value = heatSettings.showWeekends
+        ? addDays(from, Math.max(0, heatSettings.dayCount - 1))
+        : addBusinessDays(from, Math.max(0, heatSettings.dayCount - 1));
+    }
+  }
 
   function memberSet() {
     const group = groups.find((g) => g.id === groupEl.value);
@@ -236,49 +342,54 @@ function initHeat() {
   }
 
   function renderPeople() {
-    const previously = {};
-    peopleEl.querySelectorAll("input[type=checkbox]").forEach((box) => {
-      if (box.checked && !box.disabled) previously[box.getAttribute("data-user-id")] = true;
-    });
-    clear(peopleEl);
     const members = memberSet();
-    if (!people.length) {
-      peopleEl.append(h("p", { class: "hint", text: "No one has been invited yet." }));
-      return;
-    }
+    clear(peopleEl);
     people.forEach((person) => {
-      const connected = person.token_status === "ok";
       const inGroup = !!members[person.id];
-      const box = h("input", { type: "checkbox" });
-      box.disabled = !connected || inGroup;
-      box.checked = inGroup || !!previously[person.id];
-      box.setAttribute("data-user-id", String(person.id));
-      box.addEventListener("change", scheduleHeat);
+      if (!inGroup && !pickedIds[person.id]) return;
       const display = person.name || person.email || "Person";
-      const bits = [];
-      if (person.name && person.email) bits.push(person.email);
-      bits.push(roleText(person.role));
-      if (inGroup) bits.push("Included with the group");
-      if (!connected) bits.push("Calendar not connected");
-      const copy = h("span", { class: "check-copy" });
-      copy.append(h("span", { class: "check-title", text: display }));
-      copy.append(h("span", { class: "sub", text: bits.filter(Boolean).join(" · ") }));
-      const label = h("label", { class: "check-row" + (connected ? "" : " is-disabled") });
-      label.append(box, copy, pill(statusText(person.token_status), statusTone(person.token_status)));
-      peopleEl.append(label);
+      const chip = h("span", { class: "chip" });
+      chip.append(h("span", { text: display }));
+      if (inGroup) {
+        chip.append(h("span", { class: "sub", text: "Group" }));
+      } else {
+        const remove = h("button", {
+          type: "button",
+          text: "×",
+          "aria-label": "Remove " + display,
+        });
+        remove.addEventListener("click", () => {
+          delete pickedIds[person.id];
+          renderPeople();
+          scheduleHeat();
+        });
+        chip.append(remove);
+      }
+      peopleEl.append(chip);
     });
+    if (!personEl) return;
+    while (personEl.options.length > 1) personEl.remove(1);
+    personEl.options[0].textContent = people.length ? "Add a person" : "No one invited";
+    personEl.disabled = people.length === 0;
+    people.forEach((person) => {
+      if (members[person.id] || pickedIds[person.id]) return;
+      const display = person.name || person.email || "Person";
+      const suffix = person.token_status === "ok" ? "" : " (not connected)";
+      const opt = h("option", { value: person.id, text: display + suffix });
+      if (person.token_status !== "ok") opt.disabled = true;
+      personEl.append(opt);
+    });
+    personEl.value = "";
   }
 
   function selectedIds() {
     const members = memberSet();
     const userIds = [];
-    peopleEl.querySelectorAll("input[type=checkbox]").forEach((box) => {
-      if (!box.checked || box.disabled) return;
-      const id = box.getAttribute("data-user-id");
-      if (id && !members[id]) userIds.push(id);
+    Object.keys(pickedIds).forEach((id) => {
+      if (!members[id]) userIds.push(id);
     });
     const groupId = groupEl.value || "";
-    const picked = people.filter((p) => members[p.id] || userIds.indexOf(p.id) !== -1);
+    const picked = people.filter((person) => members[person.id] || pickedIds[person.id]);
     return { groupId: groupId, userIds: userIds, picked: picked };
   }
 
@@ -340,7 +451,11 @@ function initHeat() {
     hideHover();
     const total = typeof data.total === "number" ? data.total : (data.people || []).length;
     setLegend(total);
-    const days = Array.isArray(data.days) ? data.days : [];
+    const days = (Array.isArray(data.days) ? data.days : []).filter((day) => {
+      if (heatSettings.showWeekends) return true;
+      const name = day.weekday || "";
+      return name !== "Sat" && name !== "Sun";
+    });
     const rows = Array.isArray(data.rows) ? data.rows : [];
     const cells = Array.isArray(data.cells) ? data.cells : [];
     if (!days.length || !rows.length) {
@@ -428,23 +543,18 @@ function initHeat() {
       setBanner(msg, "bad", "Calendar not connected for " + missing.map((p) => p.email).join(", ") + ".");
       return;
     }
-    const span = inclusiveDaySpan(start.value, end.value);
-    if (span == null) {
+    const included = includedDayCount(start.value, end.value);
+    if (included == null) {
       setBanner(msg, "bad", "Choose a start date on or before the end date.");
       return;
     }
-    if (span > 7) {
-      setBanner(msg, "bad", "Choose 7 days or fewer.");
+    if (included === 0) {
+      setBanner(msg, "bad", heatSettings.showWeekends ? "Choose a date range." : "That range has no weekdays.");
       return;
     }
-    const winStart = parseTimeToMinutes(winStartEl.value);
-    const winEnd = parseTimeToMinutes(winEndEl.value);
-    if (winStart == null || winEnd == null || winEnd <= winStart) {
-      setBanner(msg, "bad", "The daily window needs an end time after the start.");
-      return;
-    }
-    if (winEnd - winStart > 14 * 60) {
-      setBanner(msg, "bad", "Choose a daily window of 14 hours or less.");
+    if (included > heatSettings.dayCount) {
+      const unit = heatSettings.showWeekends ? "days" : "business days";
+      setBanner(msg, "bad", "Choose " + heatSettings.dayCount + " " + unit + " or fewer.");
       return;
     }
     let rangeStart = "";
@@ -464,8 +574,6 @@ function initHeat() {
       userIds: sel.userIds,
       rangeStart: rangeStart,
       rangeEnd: rangeEnd,
-      windowStartMinutes: winStart,
-      windowEndMinutes: winEnd,
     };
     if (sel.groupId) payload.groupId = sel.groupId;
     loadMe(false).then((me) => fetch("/api/availability", {
@@ -492,17 +600,31 @@ function initHeat() {
     heatTimer = setTimeout(loadHeat, 200);
   }
 
-  [start, end, winStartEl, winEndEl, groupEl].forEach((el) => {
+  [start, end, groupEl].forEach((el) => {
     el.addEventListener("change", () => {
       if (el === groupEl) renderPeople();
       scheduleHeat();
     });
   });
+  if (personEl) {
+    personEl.addEventListener("change", () => {
+      const id = personEl.value;
+      if (!id) return;
+      pickedIds[id] = true;
+      renderPeople();
+      scheduleHeat();
+    });
+  }
 
-  Promise.all([getJson("/api/people"), getJson("/api/groups")])
-    .then((pair) => {
-      people = Array.isArray(pair[0].people) ? pair[0].people : [];
-      groups = Array.isArray(pair[1].groups) ? pair[1].groups : [];
+  Promise.all([
+    getJson("/api/heatmap-settings"),
+    getJson("/api/people"),
+    getJson("/api/groups"),
+  ])
+    .then((triple) => {
+      applyHeatSettings(triple[0]);
+      people = Array.isArray(triple[1].people) ? triple[1].people : [];
+      groups = Array.isArray(triple[2].groups) ? triple[2].groups : [];
       groups.forEach((group) => {
         groupEl.append(h("option", { value: group.id, text: group.name || "Group" }));
       });
@@ -824,6 +946,44 @@ function initAdmin() {
   const googleMsg = document.getElementById("google-msg");
   let users = [];
   let groups = [];
+
+  const settingsForm = document.getElementById("heatmap-settings-form");
+  const settingsMsg = document.getElementById("heatmap-settings-msg");
+  if (settingsForm) {
+    const dayInput = document.getElementById("heat-day-count");
+    const weekendInput = document.getElementById("heat-show-weekends");
+    const startInput = document.getElementById("heat-admin-start");
+    const endInput = document.getElementById("heat-admin-end");
+    getJson("/api/heatmap-settings").then((data) => {
+      if (dayInput && Number.isInteger(data.dayCount)) dayInput.value = String(data.dayCount);
+      if (weekendInput) weekendInput.value = data.showWeekends ? "yes" : "no";
+      if (startInput && Number.isInteger(data.windowStartMinutes)) {
+        startInput.value = String(data.windowStartMinutes);
+      }
+      if (endInput && Number.isInteger(data.windowEndMinutes)) {
+        endInput.value = String(data.windowEndMinutes);
+      }
+    }).catch((err) => {
+      setBanner(settingsMsg, "bad", err.message || "Could not load heatmap settings");
+    });
+    settingsForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const button = settingsForm.querySelector("button[type=submit]");
+      button.disabled = true;
+      send("POST", "/api/admin/heatmap-settings", {
+        dayCount: Number(dayInput.value),
+        showWeekends: weekendInput.value === "yes",
+        windowStartMinutes: Number(startInput.value),
+        windowEndMinutes: Number(endInput.value),
+      }).then(() => {
+        setBanner(settingsMsg, "ok", "Saved. Home uses these rules for everyone.");
+      }).catch((err) => {
+        setBanner(settingsMsg, "bad", err.message || "Could not save heatmap settings");
+      }).then(() => {
+        button.disabled = false;
+      });
+    });
+  }
 
   function metric(label, value) {
     const wrap = h("div", { class: "metric" });

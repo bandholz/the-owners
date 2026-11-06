@@ -124,11 +124,19 @@ describe("staging screens", () => {
     expect(text).toContain("x-csrf-token");
     expect(text).toContain('id="heat-app"');
     expect(text).toContain('id="heat-group"');
+    expect(text).toContain('id="heat-person"');
     expect(text).toContain('id="heat-people"');
+    expect(text).toContain("heat-controls");
+    expect(text).toContain("heat-chips");
+    expect(text).not.toContain('id="heat-window-start"');
+    expect(text).not.toContain('id="heat-window-end"');
     expect(text).toContain("Hover a time to see who is free and who is busy.");
     expect(text).toContain("0/0 Available");
     expect(text).toContain("/api/availability");
-    expect(text).toContain("7 days");
+    expect(text).toContain("five business days");
+    expect(text).toContain("9:00 AM–5:00 PM");
+    expect(text).toContain('id="heat-rules"');
+    expect(text).toContain("/api/heatmap-settings");
   });
 
   it("escapes the signed-in email", async () => {
@@ -241,6 +249,15 @@ describe("staging screens", () => {
     expect(text).toContain("x-csrf-token");
     expect(text).toContain("Mark added");
     expect(text).toContain("Sync Access now");
+    expect(text).toContain('id="heatmap-settings-form"');
+    expect(text).toContain('id="heat-day-count"');
+    expect(text).toContain('id="heat-show-weekends"');
+    expect(text).toContain('id="heat-admin-start"');
+    expect(text).toContain('id="heat-admin-end"');
+    expect(text).toContain("Include Saturday and Sunday");
+    expect(text).toContain("Save heatmap");
+    expect(text).toContain("/api/admin/heatmap-settings");
+    expect(text).not.toContain('id="heat-window-start"');
   });
 
   it("tells a guest that calendar connect is optional", async () => {
@@ -267,6 +284,27 @@ describe("staging screens", () => {
       env(),
     );
     expect(grid.status).toBe(401);
+    const settings = await worker.fetch(
+      new Request(`${BASE}/api/heatmap-settings`),
+      env(),
+    );
+    expect(settings.status).toBe(401);
+  });
+
+  it("returns default heatmap rules when nothing is saved", async () => {
+    const res = await worker.fetch(
+      new Request(`${BASE}/api/heatmap-settings`, {
+        headers: { cookie: "ots_session=sess-1" },
+      }),
+      authed(user()),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      dayCount: 5,
+      showWeekends: false,
+      windowStartMinutes: 9 * 60,
+      windowEndMinutes: 17 * 60,
+    });
   });
 
   it("requires a csrf token before building the availability grid", async () => {
@@ -292,6 +330,12 @@ describe("page script time helpers", () => {
     new Function(script);
     expect(script).toContain("x-csrf-token");
     expect(script).toContain("/api/availability");
+    expect(script).toContain("heat-person");
+    expect(script).toContain("Add a person");
+    expect(script).toContain("business days");
+    expect(script).toContain("/api/heatmap-settings");
+    expect(script).toContain("/api/admin/heatmap-settings");
+    expect(script).not.toContain("heat-window-start");
     expect(script).toContain('names("Free"');
     expect(script).toContain('names("Busy"');
     expect(script).not.toContain("nav-search");

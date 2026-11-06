@@ -29,7 +29,8 @@ import {
 import { listGroupMemberIds } from "./db/groups";
 import { handleAdmin } from "./admin/routes";
 import { findSharedSlots } from "./freebusy/intersect";
-import { buildAvailabilityGrid, zoneDayKeys } from "./freebusy/heatmap";
+import { buildAvailabilityGrid, includedDayKeys } from "./freebusy/heatmap";
+import { getHeatmapSettings } from "./db/heatmap-settings";
 import { queryFreeBusy, refreshAccessToken } from "./calendar/freebusy-client";
 import {
   defaultCalendarSelection,
@@ -408,6 +409,12 @@ async function handle(request: Request, env: Env): Promise<Response> {
     return deletePage(toViewer(env, authed.user));
   }
 
+  if (path === "/api/heatmap-settings" && request.method === "GET") {
+    const authed = await requireUser(request, env);
+    if (authed instanceof Response) return authed;
+    return jsonOk(await getHeatmapSettings(env.DB));
+  }
+
   if (path === "/api/me" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
@@ -537,8 +544,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
       groupId?: string;
       rangeStart?: string;
       rangeEnd?: string;
-      windowStartMinutes?: number;
-      windowEndMinutes?: number;
     };
     if (!body.rangeStart || !body.rangeEnd) {
       return jsonError(400, "range required");
@@ -577,25 +582,29 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const rangeStart = new Date(body.rangeStart);
     const rangeEnd = new Date(body.rangeEnd);
     if (!(rangeStart < rangeEnd)) return jsonError(400, "bad range");
-    const dayCount = zoneDayKeys(
+    const settings = await getHeatmapSettings(env.DB);
+    const included = includedDayKeys(
       rangeStart,
       rangeEnd,
       env.DEFAULT_TIMEZONE,
-    ).length;
-    if (dayCount > 7) return jsonError(400, "range max 7 days");
-
-    const windowStartMinutes = body.windowStartMinutes ?? 9 * 60;
-    const windowEndMinutes = body.windowEndMinutes ?? 17 * 60;
-    if (
-      !Number.isInteger(windowStartMinutes) ||
-      !Number.isInteger(windowEndMinutes) ||
-      windowStartMinutes < 0 ||
-      windowEndMinutes > 24 * 60 ||
-      windowEndMinutes <= windowStartMinutes ||
-      windowEndMinutes - windowStartMinutes > 14 * 60
-    ) {
-      return jsonError(400, "bad daily window");
+      settings.showWeekends,
+    );
+    if (included.length === 0) {
+      return jsonError(
+        400,
+        settings.showWeekends ? "no days in range" : "no weekdays in range",
+      );
     }
+    if (included.length > settings.dayCount) {
+      return jsonError(
+        400,
+        settings.showWeekends
+          ? `range max ${settings.dayCount} days`
+          : `range max ${settings.dayCount} business days`,
+      );
+    }
+    const windowStartMinutes = settings.windowStartMinutes;
+    const windowEndMinutes = settings.windowEndMinutes;
 
     const busyByPerson: BusyInterval[][] = [];
     for (const u of selectedUsers) {
@@ -616,6 +625,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       windowStartMinutes,
       windowEndMinutes,
       slotMinutes: 15,
+      showWeekends: settings.showWeekends,
       timeZone: env.DEFAULT_TIMEZONE,
     });
 
@@ -636,6 +646,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
       total: grid.total,
       windowStartMinutes,
       windowEndMinutes,
+      dayCount: settings.dayCount,
+      showWeekends: settings.showWeekends,
       people: selectedUsers.map((u) => ({
         id: u.id,
         name: u.name,

@@ -373,38 +373,60 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 .slot-time { font-weight: 600; }
+.heat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+.heat-controls .field { flex: 0 1 auto; font-size: 12px; gap: 3px; }
+.heat-controls input,
+.heat-controls select {
+  padding: 4px 8px;
+  font-size: 13px;
+  width: 10.5rem;
+  max-width: 100%;
+}
 .heat-legend {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin: 14px 0 8px;
+  gap: 8px;
+  margin: 6px 0 4px;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 12px;
 }
 .heat-scale {
-  width: 168px;
-  height: 16px;
+  width: 120px;
+  height: 12px;
   border: 1px solid #1a1a1a;
 }
-.heat-wrap { position: relative; overflow-x: auto; padding-bottom: 4px; }
-.heat-table { border-collapse: collapse; width: 100%; }
-#heat-people { display: flex; flex-wrap: wrap; gap: 8px; }
-#heat-people .check-row { width: auto; flex: 1 1 220px; margin: 0; }
+.heat-wrap { position: relative; overflow-x: auto; padding-bottom: 2px; }
+.heat-table { border-collapse: collapse; width: auto; }
+.heat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 0;
+  margin: 0 0 6px;
+}
+.heat-chips:empty { display: none; }
+.heat-chips .chip { padding: 2px 6px 2px 8px; }
+.heat-chips .sub { margin-left: 4px; }
 .heat-day {
   text-align: center;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 0 4px 6px;
+  padding: 0 1px 2px;
   vertical-align: bottom;
-  line-height: 1.2;
+  line-height: 1.15;
 }
-.heat-day small { display: block; font-size: 12px; font-weight: 600; }
+.heat-day small { display: block; font-size: 10px; font-weight: 600; }
 .heat-time {
-  width: 76px;
+  width: 58px;
   text-align: right;
-  padding: 0 8px 0 0;
-  font-size: 12px;
+  padding: 0 6px 0 0;
+  font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
   vertical-align: top;
@@ -413,8 +435,8 @@ a { color: inherit; }
 .heat-cell {
   display: block;
   width: 100%;
-  min-width: 42px;
-  height: 18px;
+  min-width: 28px;
+  height: 11px;
   border-right: 1px solid #1a1a1a;
   border-bottom: 1px dotted #8a8a8a;
   background: #fff;

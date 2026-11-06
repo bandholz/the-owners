@@ -28,17 +28,16 @@ export function toViewer(env: ViewerSource, user: UserRow): Viewer {
   };
 }
 
-function windowOptions(selected: string): string {
+function minuteOptions(selected: number): string {
   let html = "";
-  for (let minutes = 6 * 60; minutes <= 21 * 60; minutes += 30) {
+  for (let minutes = 6 * 60; minutes <= 22 * 60; minutes += 30) {
     const h24 = Math.floor(minutes / 60);
     const min = minutes % 60;
-    const value = `${String(h24).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
     const suffix = h24 >= 12 ? "PM" : "AM";
     let h12 = h24 % 12;
     if (h12 === 0) h12 = 12;
     const label = `${h12}:${String(min).padStart(2, "0")} ${suffix}`;
-    html += `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`;
+    html += `<option value="${minutes}"${minutes === selected ? " selected" : ""}>${label}</option>`;
   }
   return html;
 }
@@ -97,32 +96,31 @@ export function homePage(opts: {
     </header>
     <section class="card" id="heat-app">
       ${statusNote}
-      <form id="heat-form" class="form-grid">
-        <label class="field">Start date
+      <form id="heat-form" class="heat-controls">
+        <label class="field">Start
           <input id="heat-start" type="date" required />
         </label>
-        <label class="field">End date
+        <label class="field">End
           <input id="heat-end" type="date" required />
         </label>
-        <label class="field">From
-          <select id="heat-window-start">${windowOptions("09:00")}</select>
-        </label>
-        <label class="field">Until
-          <select id="heat-window-end">${windowOptions("17:00")}</select>
-        </label>
-        <label class="field">Saved group
+        <label class="field">Group
           <select id="heat-group">
             <option value="">No saved group</option>
           </select>
         </label>
+        <label class="field">People
+          <select id="heat-person">
+            <option value="">Add a person</option>
+          </select>
+        </label>
       </form>
-      <div id="heat-people" class="stack-sm"><p class="hint">Loading people…</p></div>
+      <div id="heat-people" class="heat-chips"></div>
       <div class="heat-legend">
         <span id="heat-legend-min">0/0 Available</span>
         <span id="heat-scale" class="heat-scale"></span>
         <span id="heat-legend-max">0/0 Available</span>
       </div>
-      <p class="hint">Hover a time to see who is free and who is busy. The range is at most 7 days.</p>
+      <p class="hint" id="heat-rules">Hover a time to see who is free and who is busy. Weekdays only, 9:00 AM–5:00 PM Central, at most five business days.</p>
       <div id="heat-msg" class="banner" hidden></div>
       <div id="heat-wrap" class="heat-wrap">
         <div id="heat-grid"><p class="hint">Select people or a saved group.</p></div>
@@ -265,7 +263,7 @@ export function availableTimesPage(viewer: Viewer): Response {
 export function adminPage(viewer: Viewer): Response {
   const main = `<header class="page-head">
       <h1>Admin</h1>
-      <p class="lede">Invite list, roles, groups, Access sync, and the Google test-user checklist.</p>
+      <p class="lede">Invite list, roles, groups, heatmap rules, Access sync, and the Google test-user checklist.</p>
     </header>
     <div id="admin-app" class="stack">
       <noscript><p class="banner banner-warn">JavaScript is required to manage the invite list.</p></noscript>
@@ -288,6 +286,29 @@ export function adminPage(viewer: Viewer): Response {
         </form>
         <div id="invite-msg" class="banner" hidden></div>
         <div id="roster-list"><p class="hint">Loading people…</p></div>
+      </section>
+      <section class="card" id="heatmap-settings-card">
+        <h2>Heatmap</h2>
+        <p class="hint">These rules apply to everyone on Home. Times are Central (America/Chicago). Busy or free only.</p>
+        <form id="heatmap-settings-form" class="form-grid">
+          <label class="field">Days shown
+            <input id="heat-day-count" type="number" min="1" max="14" step="1" value="5" required />
+          </label>
+          <label class="field">Weekends
+            <select id="heat-show-weekends">
+              <option value="no">Weekdays only</option>
+              <option value="yes">Include Saturday and Sunday</option>
+            </select>
+          </label>
+          <label class="field">From
+            <select id="heat-admin-start">${minuteOptions(9 * 60)}</select>
+          </label>
+          <label class="field">Until
+            <select id="heat-admin-end">${minuteOptions(17 * 60)}</select>
+          </label>
+          <button class="btn btn-primary" type="submit">Save heatmap</button>
+        </form>
+        <div id="heatmap-settings-msg" class="banner" hidden></div>
       </section>
       <section class="card" id="groups-card">
         <h2>Groups</h2>

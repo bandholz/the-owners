@@ -375,6 +375,10 @@ function initHeat() {
     return parts.year + "-" + mo + "-01";
   }
 
+  function daysInMonth(year, month) {
+    return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  }
+
   function shiftMonth(iso, delta) {
     const parts = isoParts(iso);
     if (!parts) return iso;
@@ -510,17 +514,17 @@ function initHeat() {
       ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((name) => dow.append(h("span", { text: name })));
       month.append(dow);
       const days = h("div", { class: "range-days" });
-      const firstDow = weekdayIndex(monthIso);
-      let cursor = addDays(monthIso, -(firstDow || 0));
-      for (let i = 0; i < 42; i += 1) {
-        const iso = cursor;
-        const info = isoParts(iso);
-        const inMonth = info && parts && info.month === parts.month;
+      const firstDow = weekdayIndex(monthIso) || 0;
+      const count = parts ? daysInMonth(parts.year, parts.month) : 0;
+      for (let i = 0; i < firstDow; i += 1) {
+        days.append(h("span", { class: "range-day is-empty", "aria-hidden": "true" }));
+      }
+      for (let day = 1; day <= count; day += 1) {
+        const iso = monthIso.slice(0, 8) + (day < 10 ? "0" + day : String(day));
         const inRange = draftStart && draftEnd && iso >= draftStart && iso <= draftEnd;
         const isStart = iso === draftStart;
         const isEnd = iso === draftEnd;
         let cls = "range-day";
-        if (!inMonth) cls += " is-outside";
         if (inRange) cls += " is-inrange";
         if (isStart) cls += " is-start";
         if (isEnd) cls += " is-end";
@@ -528,10 +532,13 @@ function initHeat() {
         const btn = h("button", { type: "button", class: cls, "aria-label": formatDay(iso) });
         btn.setAttribute("data-date", iso);
         if (isStart || isEnd) btn.setAttribute("aria-pressed", "true");
-        btn.append(h("span", { text: info ? String(info.day) : "" }));
+        btn.append(h("span", { text: String(day) }));
         btn.addEventListener("click", () => pickDay(iso));
         days.append(btn);
-        cursor = addDays(cursor, 1);
+      }
+      const trailing = (7 - ((firstDow + count) % 7)) % 7;
+      for (let i = 0; i < trailing; i += 1) {
+        days.append(h("span", { class: "range-day is-empty", "aria-hidden": "true" }));
       }
       month.append(days);
       host.append(month);

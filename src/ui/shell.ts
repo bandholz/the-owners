@@ -494,7 +494,10 @@ a { color: inherit; }
   cursor: pointer;
   position: relative;
 }
-.range-day.is-outside { color: #b5b5b5; }
+.range-day.is-empty {
+  cursor: default;
+  pointer-events: none;
+}
 .range-day.is-inrange { background: #e7e7e7; }
 .range-day.is-start { border-radius: 999px 0 0 999px; }
 .range-day.is-end { border-radius: 0 999px 999px 0; }

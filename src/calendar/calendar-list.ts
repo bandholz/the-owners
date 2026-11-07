@@ -7,6 +7,15 @@ export interface CalendarListEntry {
   primary: boolean;
 }
 
+export class CalendarListError extends Error {
+  status: number;
+  constructor(status: number) {
+    super(`calendarList failed: ${status}`);
+    this.name = "CalendarListError";
+    this.status = status;
+  }
+}
+
 export async function listCalendars(
   accessToken: string,
   fetchImpl: typeof fetch = fetch,
@@ -14,7 +23,7 @@ export async function listCalendars(
   const res = await fetchImpl(`${CALENDAR_LIST_URL}?minAccessRole=reader`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`calendarList failed: ${res.status}`);
+  if (!res.ok) throw new CalendarListError(res.status);
   const data = (await res.json()) as {
     items?: Array<{ id?: string; summary?: string; primary?: boolean }>;
   };

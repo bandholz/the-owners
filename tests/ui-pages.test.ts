@@ -124,6 +124,8 @@ describe("staging screens", () => {
     expect(text).toContain('aria-current="page"');
     expect(text).toContain("x-csrf-token");
     expect(text).toContain('id="heat-app"');
+    expect(text).toContain('id="home-reconnect"');
+    expect(text).toContain('id="metric-reconnect"');
     expect(text).toContain('id="heat-group"');
     expect(text).toContain('id="heat-person"');
     expect(text).toContain('id="heat-people"');
@@ -198,6 +200,10 @@ describe("staging screens", () => {
     expect(text).toContain('href="/calendars"');
     expect(text).toContain('id="disconnect-card"');
     expect(text).toContain('id="delete-account"');
+    expect(text).toContain('id="reconnect-calendar"');
+    expect(text).toContain('id="reconnect-card"');
+    expect(text).toContain('href="/auth/google/calendar/start"');
+    expect(text).not.toContain('id="reconnect-calendar" href="/me/delete"');
     expect(text).toContain('id="nav-toggle"');
     expect(text).toContain('id="app-nav"');
     expect(text).toContain('id="share-window-form"');

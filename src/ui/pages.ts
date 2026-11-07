@@ -87,7 +87,7 @@ export function homePage(opts: {
   const statusNote = viewer.isGuest
     ? `<p class="banner" id="heat-guest">Guests can check availability without connecting a calendar. Select people who have connected.</p>`
     : viewer.calendarOk
-      ? ""
+      ? `<p class="hint">Calendar access can be refreshed without deleting your account. <a id="home-reconnect" href="/auth/google/calendar/start">Reconnect Google Calendar</a></p>`
       : `<p class="banner banner-warn">Connect Google Calendar before your own time can be included. <a href="/auth/google/calendar/start">Connect Google Calendar</a></p>`;
 
   const main = `<header class="page-head">
@@ -195,10 +195,21 @@ function shareWindowCard(): string {
     </section>`;
 }
 
-function disconnectCard(): string {
+function reconnectCard(): string {
+  return `<section class="card" id="reconnect-card">
+      <h2>Reconnect Google Calendar</h2>
+      <p class="hint">Asks Google for calendar access again. This keeps your account, invite, role, groups, and sharing settings.</p>
+      <a class="btn" id="reconnect-calendar" href="/auth/google/calendar/start">Reconnect Google Calendar</a>
+    </section>`;
+}
+
+function disconnectCard(showReconnectHint = false): string {
+  const hint = showReconnectHint
+    ? "Removes your account from the invite list and deletes sessions and saved calendar names. To refresh calendar access without deleting your account, use Reconnect Google Calendar."
+    : "Revokes calendar access and deletes your account, sessions, and saved calendar names.";
   return `<section class="card card-quiet" id="disconnect-card">
       <h2>Disconnect and delete</h2>
-      <p class="hint">Revokes calendar access and deletes your account, sessions, and saved calendar names.</p>
+      <p class="hint">${hint}</p>
       <div id="delete-msg" class="banner" hidden></div>
       <button type="button" class="btn btn-danger" id="delete-account">Disconnect &amp; delete my data</button>
     </section>`;
@@ -233,7 +244,8 @@ export function calendarsPage(viewer: Viewer): Response {
           </section>
         </div>
         ${shareWindowCard()}
-        ${disconnectCard()}`
+        ${reconnectCard()}
+        ${disconnectCard(true)}`
       : `<header class="page-head">
           <h1>Calendars</h1>
           <p class="lede">Connect Google Calendar before choosing which calendars count.</p>

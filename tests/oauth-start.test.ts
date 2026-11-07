@@ -109,12 +109,124 @@ describe("Google OAuth start redirects", () => {
     );
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")).toContain("calendar.freebusy");
+    const scope = url.searchParams.get("scope") ?? "";
+    expect(scope).toContain("calendar.freebusy");
+    expect(scope).toContain("calendar.calendarlist.readonly");
+    expect(scope).toContain("calendar.events.owned");
     const stateCookie = res.headers.get("set-cookie");
     expect(stateCookie).toBeTruthy();
     expect(stateCookie!.startsWith("ots_cal_state=")).toBe(true);
     expect(url.searchParams.get("state")).toBe(
       stateFromCookie(stateCookie!, "ots_cal_state"),
     );
+  });
+
+  it("does not delete the account when starting calendar reconnect", async () => {
+    const ran: string[] = [];
+    const session: SessionRow = {
+      id: "sess-1",
+      user_id: "user-1",
+      csrf_secret: "csrf",
+      created_at: "2026-11-06T00:00:00.000Z",
+      expires_at: "2099-01-01T00:00:00.000Z",
+    };
+    const user: UserRow = {
+      id: "user-1",
+      email: "aaron@9operators.com",
+      email_normalized: "aaron@9operators.com",
+      name: "Aaron",
+      role: "host",
+      google_sub: null,
+      invited_by: null,
+      created_at: "2026-11-06T00:00:00.000Z",
+      updated_at: "2026-11-06T00:00:00.000Z",
+      last_login_at: null,
+      calendar_connected_at: "2026-11-06T00:00:00.000Z",
+      token_status: "ok",
+    };
+    const db = {
+      prepare(sql: string) {
+        const stmt = {
+          bind() {
+            return stmt;
+          },
+          async first() {
+            if (sql.includes("FROM sessions")) return session;
+            if (sql.includes("FROM users")) return user;
+            return null;
+          },
+          async run() {
+            ran.push(sql);
+          },
+        };
+        return stmt;
+      },
+    } as unknown as D1Database;
+    const res = await worker.fetch(
+      new Request(`${BASE}/auth/google/calendar/start`, {
+        headers: { cookie: "ots_session=sess-1" },
+      }),
+      env(db),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("prompt=consent");
+    expect(ran.join("\n")).not.toContain("DELETE FROM users");
+  });
+
+  it("still deletes the account on disconnect", async () => {
+    const ran: string[] = [];
+    const session: SessionRow = {
+      id: "sess-1",
+      user_id: "user-1",
+      csrf_secret: "csrf-secret",
+      created_at: "2026-11-06T00:00:00.000Z",
+      expires_at: "2099-01-01T00:00:00.000Z",
+    };
+    const user: UserRow = {
+      id: "user-1",
+      email: "aaron@9operators.com",
+      email_normalized: "aaron@9operators.com",
+      name: "Aaron",
+      role: "host",
+      google_sub: null,
+      invited_by: null,
+      created_at: "2026-11-06T00:00:00.000Z",
+      updated_at: "2026-11-06T00:00:00.000Z",
+      last_login_at: null,
+      calendar_connected_at: "2026-11-06T00:00:00.000Z",
+      token_status: "ok",
+    };
+    const db = {
+      prepare(sql: string) {
+        const stmt = {
+          bind() {
+            return stmt;
+          },
+          async first() {
+            if (sql.includes("FROM sessions")) return session;
+            if (sql.includes("FROM users")) return user;
+            return null;
+          },
+          async run() {
+            ran.push(sql);
+          },
+        };
+        return stmt;
+      },
+    } as unknown as D1Database;
+    const res = await worker.fetch(
+      new Request(`${BASE}/me/delete`, {
+        method: "POST",
+        headers: {
+          cookie: "ots_session=sess-1",
+          "x-csrf-token": "csrf-secret",
+        },
+      }),
+      env(db),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+    expect(ran.some((sql) => sql.includes("DELETE FROM oauth_tokens"))).toBe(true);
+    expect(ran.some((sql) => sql.includes("DELETE FROM users"))).toBe(true);
   });
 });

@@ -938,6 +938,11 @@ function metrics(viewer: Viewer): string {
     <div class="metric">
       <div class="metric-label">Calendar</div>
       <div class="metric-value" id="metric-calendar">${calendarStatus(viewer)}</div>
+      ${
+        viewer.calendarOk && !viewer.isGuest
+          ? `<a class="sub" id="metric-reconnect" href="/auth/google/calendar/start">Reconnect Google Calendar</a>`
+          : ""
+      }
     </div>
     <div class="metric">
       <div class="metric-label">Time zone</div>

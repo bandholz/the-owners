@@ -178,7 +178,7 @@ function initHome() {
   const btn = document.getElementById("delete-account");
   if (!btn) return;
   btn.addEventListener("click", () => {
-    if (!confirm("Disconnect Google Calendar and delete your account data?")) return;
+    if (!confirm("Delete your account and remove yourself from the invite list? Reconnect Google Calendar if you only need to approve access again.")) return;
     btn.disabled = true;
     loadMe(false).then((me) =>
       fetch("/me/delete", {

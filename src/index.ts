@@ -2,7 +2,9 @@ import type { BusyInterval, Env, UserRow } from "./types";
 import {
   buildGoogleAuthUrl,
   CALENDAR_SCOPES,
+  missingCalendarScopes,
   tokenCanCreateEvents,
+  tokenCanListCalendars,
   exchangeCode,
   fetchUserInfo,
   IDENTITY_SCOPES,
@@ -45,6 +47,7 @@ import { createCalendarEvent, deleteCalendarEvent } from "./calendar/events";
 import {
   defaultCalendarSelection,
   listCalendars,
+  type CalendarListEntry,
 } from "./calendar/calendar-list";
 import {
   assertCanFindSlots,
@@ -348,31 +351,64 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (authed.user.token_status !== "ok") {
       return jsonError(400, "calendar not connected");
     }
-    const refresh = await loadRefreshToken(
-      env.DB,
-      authed.user.id,
-      env.TOKEN_ENCRYPTION_KEY,
-    );
-    if (!refresh) return jsonError(400, "missing token");
-    const access = await refreshAccessToken(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      refresh,
-    );
-    const available = await listCalendars(access);
-    const selected = await getSelectedCalendars(env.DB, authed.user.id);
-    return jsonOk({
-      available: available.map((c) => ({
-        id: c.id,
-        summary: c.summary,
-        primary: c.primary,
-      })),
-      selected: selected.map((c) => ({
-        id: c.calendar_id,
-        summary: c.summary,
-        primary: Boolean(c.is_primary),
-      })),
-    });
+    const scopes = await loadTokenScopes(env.DB, authed.user.id);
+    const missingScopes = missingCalendarScopes(scopes);
+    const selectedRows = await getSelectedCalendars(env.DB, authed.user.id);
+    const selected = selectedRows.map((c) => ({
+      id: c.calendar_id,
+      summary: c.summary ?? c.calendar_id,
+      primary: Boolean(c.is_primary),
+    }));
+    if (!tokenCanListCalendars(scopes)) {
+      return jsonOk({
+        available: [],
+        selected,
+        listError: "missing_scope",
+        missingScopes,
+      });
+    }
+    try {
+      const refresh = await loadRefreshToken(
+        env.DB,
+        authed.user.id,
+        env.TOKEN_ENCRYPTION_KEY,
+      );
+      if (!refresh) {
+        return jsonOk({
+          available: [],
+          selected,
+          listError: "list_failed",
+          missingScopes,
+        });
+      }
+      const access = await refreshAccessToken(
+        env.GOOGLE_CLIENT_ID,
+        env.GOOGLE_CLIENT_SECRET,
+        refresh,
+      );
+      const available = await listCalendars(access);
+      return jsonOk({
+        available: available.map((c) => ({
+          id: c.id,
+          summary: c.summary,
+          primary: c.primary,
+        })),
+        selected,
+        listError: null,
+        missingScopes,
+      });
+    } catch (err) {
+      console.error(
+        "calendar list failed",
+        err instanceof Error ? err.name : "error",
+      );
+      return jsonOk({
+        available: [] as CalendarListEntry[],
+        selected,
+        listError: "list_failed",
+        missingScopes,
+      });
+    }
   }
 
   if (path === "/api/calendars" && request.method === "PUT") {

@@ -16,8 +16,19 @@ export const CALENDAR_SCOPES = [
 export const EVENT_CREATE_SCOPE =
   "https://www.googleapis.com/auth/calendar.events.owned";
 
+export const CALENDAR_LIST_SCOPE =
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+
 export function tokenCanCreateEvents(scopes: string[]): boolean {
   return scopes.includes(EVENT_CREATE_SCOPE);
+}
+
+export function tokenCanListCalendars(scopes: string[]): boolean {
+  return scopes.includes(CALENDAR_LIST_SCOPE);
+}
+
+export function missingCalendarScopes(scopes: string[]): string[] {
+  return CALENDAR_SCOPES.filter((scope) => !scopes.includes(scope));
 }
 
 export function buildGoogleAuthUrl(opts: {

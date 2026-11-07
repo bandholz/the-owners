@@ -398,6 +398,10 @@ describe("page script time helpers", () => {
     expect(script).toContain("/api/admin/heatmap-settings");
     expect(script).toContain("/api/events");
     expect(script).toContain("/api/me/share-window");
+    expect(script).toContain("We could not list your calendars.");
+    expect(script).toContain("your Google admin may be blocking it");
+    expect(script).toContain("Reconnect Google Calendar");
+    expect(script).toContain("listError");
     expect(script).toContain("Not shared");
     expect(script).not.toContain("Calendar not connected for");
     expect(script).toContain("Reconnect Google Calendar");

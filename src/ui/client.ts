@@ -1388,8 +1388,22 @@ function initCalendars() {
     });
 }
 
+function showCalendarAccessNotice(msg, data) {
+  if (!msg || !data) return;
+  const listFailed = data.listError === "missing_scope" || data.listError === "list_failed";
+  const missing = Array.isArray(data.missingScopes) && data.missingScopes.length > 0;
+  if (!listFailed && !missing) return;
+  const text = listFailed
+    ? "We could not list your calendars. Reconnect and approve calendar access. If that still fails, your Google admin may be blocking it."
+    : "Some calendar access was not approved. Reconnect and approve calendar access. If that still fails, your Google admin may be blocking it.";
+  setBanner(msg, listFailed ? "bad" : "warn", text);
+  msg.append(document.createTextNode(" "));
+  msg.append(h("a", { href: "/auth/google/calendar/start", text: "Reconnect Google Calendar" }));
+}
+
 function renderCalendars(body, msg, data) {
   clear(body);
+  showCalendarAccessNotice(msg, data);
   const available = Array.isArray(data.available) ? data.available : [];
   const selected = Array.isArray(data.selected) ? data.selected : [];
   const selectedIds = {};

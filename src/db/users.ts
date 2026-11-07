@@ -56,6 +56,20 @@ export async function removeUser(db: D1Database, userId: string): Promise<void> 
   await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
 }
 
+export async function setShareWindow(
+  db: D1Database,
+  userId: string,
+  shareWindow: "full" | "week" | "month",
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      "UPDATE users SET share_window = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(shareWindow, now, userId)
+    .run();
+}
+
 export async function setRole(
   db: D1Database,
   userId: string,

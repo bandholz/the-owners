@@ -42,6 +42,18 @@ export async function storeRefreshToken(
     .run();
 }
 
+export async function loadTokenScopes(
+  db: D1Database,
+  userId: string,
+): Promise<string[]> {
+  const row = await db
+    .prepare("SELECT scopes FROM oauth_tokens WHERE user_id = ?")
+    .bind(userId)
+    .first<{ scopes: string | null }>();
+  if (!row?.scopes) return [];
+  return row.scopes.split(/\s+/).filter(Boolean);
+}
+
 export async function loadRefreshToken(
   db: D1Database,
   userId: string,

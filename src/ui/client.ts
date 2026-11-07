@@ -1680,7 +1680,7 @@ function initAdmin() {
       const nameCell = h("td", {});
       nameCell.append(nameInput);
       const members = h("td", {});
-      const chips = h("div", { class: "row" });
+      const chips = h("div", { class: "group-members" });
       const ids = Array.isArray(group.memberIds) ? group.memberIds : [];
       if (!ids.length) chips.append(h("span", { class: "sub", text: "No members yet." }));
       ids.forEach((id) => {

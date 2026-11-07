@@ -385,6 +385,7 @@ describe("page script time helpers", () => {
     expect(script).toContain("(Group)");
     expect(script).toContain("Add a group");
     expect(script).toContain("data-table");
+    expect(script).toContain("group-members");
     expect(script).toContain("No members yet.");
     expect(script).toContain("defaultGroupName");
     expect(script).toContain("weekdays");

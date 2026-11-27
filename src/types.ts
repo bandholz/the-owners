@@ -10,6 +10,8 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   TOKEN_ENCRYPTION_KEY: string;
+  /** Optional previous 64-hex AES-256 key used to decrypt/re-encrypt during rotation */
+  TOKEN_ENCRYPTION_KEY_PREVIOUS?: string;
   SESSION_SECRET: string;
   APP_BASE_URL: string;
   /** Set "true" to enable Access policy PUT on invite/remove */

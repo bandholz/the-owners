@@ -62,7 +62,7 @@ export async function handleAdmin(
   if (path.startsWith("/api/groups")) {
     const adminErr = requireAdmin(authed.user);
     if (adminErr) return adminErr;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    const csrfErr = await requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
 
     if (path === "/api/groups" && request.method === "POST") {
@@ -143,7 +143,7 @@ export async function handleAdmin(
   const adminErr = requireAdmin(authed.user);
   if (adminErr) return adminErr;
   if (request.method !== "GET" && request.method !== "HEAD") {
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    const csrfErr = await requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
   }
 

@@ -7,7 +7,12 @@ import {
   IDENTITY_SCOPES,
   newOAuthState,
 } from "./auth/google";
-import { createSession, deleteSession } from "./db/sessions";
+import {
+  createSession,
+  deleteSession,
+  deleteSessionByRawToken,
+  deleteSessionsForUser,
+} from "./db/sessions";
 import {
   getUserByEmail,
   getUserById,
@@ -40,13 +45,15 @@ import {
   mergeSelectedUserIds,
 } from "./slots/resolve";
 import {
-  clearSessionCookie,
+  attachRotatedCookie,
+  clearAllSessionCookies,
+  getSessionTokenFromCookies,
+  isSecureRequest,
   jsonError,
   jsonOk,
   parseCookies,
   requireCsrf,
   requireUser,
-  SESSION_COOKIE,
   sessionCookieHeader,
 } from "./middleware/session";
 import { homePage, htmlPage } from "./ui/pages";
@@ -82,21 +89,25 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (admin) return admin;
 
   if (path === "/" && request.method === "GET") {
+    const secure = isSecureRequest(request, env);
     const cookies = parseCookies(request.headers.get("cookie"));
-    const sid = cookies[SESSION_COOKIE];
+    const sid = getSessionTokenFromCookies(cookies, secure);
     if (!sid) return homePage({ appName: env.APP_NAME, signedIn: false });
     const authed = await requireUser(request, env);
     if (authed instanceof Response) {
       return homePage({ appName: env.APP_NAME, signedIn: false });
     }
-    return homePage({
-      appName: env.APP_NAME,
-      signedIn: true,
-      email: authed.user.email,
-      role: authed.user.role,
-      calendarOk: authed.user.token_status === "ok",
-      isGuest: authed.user.role === "guest",
-    });
+    return attachRotatedCookie(
+      homePage({
+        appName: env.APP_NAME,
+        signedIn: true,
+        email: authed.user.email,
+        role: authed.user.role,
+        calendarOk: authed.user.token_status === "ok",
+        isGuest: authed.user.role === "guest",
+      }),
+      authed,
+    );
   }
 
   if (path === "/auth/google/start" && request.method === "GET") {
@@ -143,33 +154,36 @@ async function handle(request: Request, env: Env): Promise<Response> {
       );
     }
     await markLogin(env.DB, user.id, info.sub, info.name ?? null);
-    const session = await createSession(env.DB, user.id);
+    const session = await createSession(env.DB, user.id, env.SESSION_SECRET);
     await writeAudit(env, {
       actorUserId: user.id,
       action: "sign_in",
       targetEmail: email,
     });
-    const secure = url.protocol === "https:";
+    const secure = isSecureRequest(request, env);
     const headers = new Headers({ location: "/" });
     headers.append(
       "set-cookie",
-      sessionCookieHeader(session.id, session.expires_at, secure),
+      sessionCookieHeader(session.rawToken, session.expires_at, secure),
     );
     headers.append(
       "set-cookie",
-      "ots_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+      `ots_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`,
     );
     return new Response(null, { status: 302, headers });
   }
 
   if (path === "/auth/logout") {
+    const secure = isSecureRequest(request, env);
     const cookies = parseCookies(request.headers.get("cookie"));
-    if (cookies[SESSION_COOKIE]) {
-      await deleteSession(env.DB, cookies[SESSION_COOKIE]);
+    const rawToken = getSessionTokenFromCookies(cookies, secure);
+    if (rawToken) {
+      await deleteSessionByRawToken(env.DB, rawToken, env.SESSION_SECRET);
     }
-    const secure = url.protocol === "https:";
     const headers = new Headers({ location: "/" });
-    headers.append("set-cookie", clearSessionCookie(secure));
+    for (const c of clearAllSessionCookies(secure)) {
+      headers.append("set-cookie", c);
+    }
     return new Response(null, { status: 302, headers });
   }
 
@@ -265,6 +279,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       env.DB,
       authed.user.id,
       env.TOKEN_ENCRYPTION_KEY,
+      env.TOKEN_ENCRYPTION_KEY_PREVIOUS,
     );
     if (!refresh) return jsonError(400, "missing token");
     const access = await refreshAccessToken(
@@ -291,7 +306,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/api/calendars" && request.method === "PUT") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    const csrfErr = await requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
     if (authed.user.role === "guest") {
       return jsonError(400, "guests do not connect calendars");
@@ -335,19 +350,22 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/me/delete" && request.method === "POST") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    const csrfErr = await requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
     await deleteRefreshToken(env.DB, authed.user.id);
     await deleteSession(env.DB, authed.sessionId);
+    await deleteSessionsForUser(env.DB, authed.user.id);
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "calendar_disconnect",
       targetEmail: authed.user.email,
     });
     await removeUser(env.DB, authed.user.id);
-    const secure = url.protocol === "https:";
+    const secure = isSecureRequest(request, env);
     const headers = new Headers({ location: "/" });
-    headers.append("set-cookie", clearSessionCookie(secure));
+    for (const c of clearAllSessionCookies(secure)) {
+      headers.append("set-cookie", c);
+    }
     return new Response(null, { status: 302, headers });
   }
 
@@ -363,20 +381,23 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (path === "/api/me" && request.method === "GET") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
-    return jsonOk({
-      email: authed.user.email,
-      role: authed.user.role,
-      token_status: authed.user.token_status,
-      guest: authed.user.role === "guest",
-      calendarRequired: authed.user.role !== "guest",
-      csrf: authed.csrfSecret,
-    });
+    return attachRotatedCookie(
+      jsonOk({
+        email: authed.user.email,
+        role: authed.user.role,
+        token_status: authed.user.token_status,
+        guest: authed.user.role === "guest",
+        calendarRequired: authed.user.role !== "guest",
+        csrf: authed.csrfSecret,
+      }),
+      authed,
+    );
   }
 
   if (path === "/api/slots" && request.method === "POST") {
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
+    const csrfErr = await requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
 
     const can = assertCanFindSlots(authed.user);
@@ -441,6 +462,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
         env.DB,
         u.id,
         env.TOKEN_ENCRYPTION_KEY,
+        env.TOKEN_ENCRYPTION_KEY_PREVIOUS,
       );
       if (!refresh) return jsonError(400, `missing token: ${u.email}`);
       const access = await refreshAccessToken(

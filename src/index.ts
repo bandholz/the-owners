@@ -49,7 +49,7 @@ import {
   SESSION_COOKIE,
   sessionCookieHeader,
 } from "./middleware/session";
-import { homePage, htmlPage } from "./ui/pages";
+import { escapeHtml, homePage, htmlPage } from "./ui/pages";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -139,7 +139,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       });
       return htmlPage(
         "Not invited",
-        `<h1>Not invited</h1><p>Ask an admin to invite <strong>${email}</strong>.</p>`,
+        `<h1>Not invited</h1><p>Ask an admin to invite <strong>${escapeHtml(email)}</strong>.</p>`,
       );
     }
     await markLogin(env.DB, user.id, info.sub, info.name ?? null);

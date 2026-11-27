@@ -41,26 +41,43 @@ import {
 } from "./slots/resolve";
 import {
   clearSessionCookie,
+  CSRF_HEADER,
   jsonError,
   jsonOk,
   parseCookies,
   requireCsrf,
+  requireSameOrigin,
   requireUser,
   SESSION_COOKIE,
   sessionCookieHeader,
 } from "./middleware/session";
+import { applySecurityHeaders } from "./middleware/headers";
+import { timingSafeEqual } from "./crypto/tokens";
 import { homePage, htmlPage } from "./ui/pages";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      return await handle(request, env);
+      const res = await handle(request, env);
+      return applySecurityHeaders(res, request, env);
     } catch (err) {
       console.error("unhandled", err instanceof Error ? err.message : err);
-      return jsonError(500, "internal error");
+      return applySecurityHeaders(jsonError(500, "internal error"), request, env);
     }
   },
 };
+
+async function readLogoutCsrf(request: Request): Promise<string> {
+  const header = request.headers.get(CSRF_HEADER);
+  if (header) return header;
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+    const text = await request.text();
+    const params = new URLSearchParams(text);
+    return params.get("csrf") ?? "";
+  }
+  return "";
+}
 
 async function handle(request: Request, env: Env): Promise<Response> {
   if (env.ENVIRONMENT === "production" && env.ALLOW_PRODUCTION !== "true") {
@@ -70,16 +87,11 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (path === "/health") {
-    return jsonOk({
-      ok: true,
-      env: env.ENVIRONMENT,
-      tz: env.DEFAULT_TIMEZONE,
-    });
-  }
+  // --- Explicitly public routes (minimal allowlist; everything else fails closed) ---
 
-  const admin = await handleAdmin(request, env, path);
-  if (admin) return admin;
+  if (path === "/health" && request.method === "GET") {
+    return jsonOk({ ok: true });
+  }
 
   if (path === "/" && request.method === "GET") {
     const cookies = parseCookies(request.headers.get("cookie"));
@@ -96,6 +108,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       role: authed.user.role,
       calendarOk: authed.user.token_status === "ok",
       isGuest: authed.user.role === "guest",
+      csrf: authed.csrfSecret,
     });
   }
 
@@ -149,7 +162,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       action: "sign_in",
       targetEmail: email,
     });
-    const secure = url.protocol === "https:";
+    const secure = url.protocol === "https:" || env.ENVIRONMENT !== "local";
     const headers = new Headers({ location: "/" });
     headers.append(
       "set-cookie",
@@ -163,19 +176,44 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/auth/logout") {
-    const cookies = parseCookies(request.headers.get("cookie"));
-    if (cookies[SESSION_COOKIE]) {
-      await deleteSession(env.DB, cookies[SESSION_COOKIE]);
+    if (request.method !== "POST") {
+      return new Response(JSON.stringify({ error: "method not allowed" }), {
+        status: 405,
+        headers: {
+          "content-type": "application/json",
+          allow: "POST",
+        },
+      });
     }
-    const secure = url.protocol === "https:";
+    const originErr = requireSameOrigin(request, env);
+    if (originErr) return originErr;
+    const authed = await requireUser(request, env);
+    if (!(authed instanceof Response)) {
+      const token = await readLogoutCsrf(request);
+      if (!timingSafeEqual(token, authed.csrfSecret)) {
+        return jsonError(403, "csrf");
+      }
+      await deleteSession(env.DB, authed.sessionId);
+    }
+    const secure = url.protocol === "https:" || env.ENVIRONMENT !== "local";
     const headers = new Headers({ location: "/" });
     headers.append("set-cookie", clearSessionCookie(secure));
     return new Response(null, { status: 302, headers });
   }
 
+  // --- Fail-closed authentication + CSRF gate for all non-public routes ---
+  const authed = await requireUser(request, env);
+  if (authed instanceof Response) return authed;
+
+  const originErr = requireSameOrigin(request, env);
+  if (originErr) return originErr;
+  const csrfErr = requireCsrf(request, authed.csrfSecret);
+  if (csrfErr) return csrfErr;
+
+  const admin = await handleAdmin(request, env, path);
+  if (admin) return admin;
+
   if (path === "/auth/google/calendar/start" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     if (authed.user.role === "guest") {
       return htmlPage(
         "Calendar optional",
@@ -203,8 +241,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/auth/google/calendar/callback" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const cookies = parseCookies(request.headers.get("cookie"));
@@ -253,8 +289,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/api/calendars" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     if (authed.user.role === "guest") {
       return jsonError(400, "guests do not connect calendars");
     }
@@ -289,10 +323,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/api/calendars" && request.method === "PUT") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
-    if (csrfErr) return csrfErr;
     if (authed.user.role === "guest") {
       return jsonError(400, "guests do not connect calendars");
     }
@@ -321,8 +351,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/calendars" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     return htmlPage(
       "Choose calendars",
       `<h1>Choose calendars</h1>
@@ -333,10 +361,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/me/delete" && request.method === "POST") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
-    if (csrfErr) return csrfErr;
     await deleteRefreshToken(env.DB, authed.user.id);
     await deleteSession(env.DB, authed.sessionId);
     await writeAudit(env, {
@@ -345,7 +369,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       targetEmail: authed.user.email,
     });
     await removeUser(env.DB, authed.user.id);
-    const secure = url.protocol === "https:";
+    const secure = url.protocol === "https:" || env.ENVIRONMENT !== "local";
     const headers = new Headers({ location: "/" });
     headers.append("set-cookie", clearSessionCookie(secure));
     return new Response(null, { status: 302, headers });
@@ -361,8 +385,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/api/me" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     return jsonOk({
       email: authed.user.email,
       role: authed.user.role,
@@ -374,11 +396,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/api/slots" && request.method === "POST") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
-    const csrfErr = requireCsrf(request, authed.csrfSecret);
-    if (csrfErr) return csrfErr;
-
     const can = assertCanFindSlots(authed.user);
     if (!can.ok) return jsonError(403, can.error);
 
@@ -494,8 +511,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/api/people" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     const users = await listUsers(env.DB);
     return jsonOk({
       people: users.map((u) => ({
@@ -509,8 +524,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/app" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     return htmlPage(
       "Find a time",
       `<h1>Find a time</h1>
@@ -525,8 +538,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/admin" && request.method === "GET") {
-    const authed = await requireUser(request, env);
-    if (authed instanceof Response) return authed;
     if (authed.user.role !== "admin") return jsonError(403, "admin only");
     return htmlPage(
       "Admin",

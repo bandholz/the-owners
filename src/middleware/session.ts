@@ -76,6 +76,38 @@ export function requireCsrf(request: Request, csrfSecret: string): Response | nu
   return null;
 }
 
+export function requireSameOrigin(
+  request: Request,
+  env: Pick<Env, "APP_BASE_URL">,
+): Response | null {
+  if (
+    request.method === "GET" ||
+    request.method === "HEAD" ||
+    request.method === "OPTIONS"
+  ) {
+    return null;
+  }
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite && fetchSite.toLowerCase() === "cross-site") {
+    return jsonError(403, "cross-site request blocked");
+  }
+  const origin = request.headers.get("origin");
+  if (origin) {
+    let expectedOrigin = new URL(request.url).origin;
+    if (env.APP_BASE_URL) {
+      try {
+        expectedOrigin = new URL(env.APP_BASE_URL).origin;
+      } catch {
+        // fall back to request origin when APP_BASE_URL is malformed
+      }
+    }
+    if (origin !== expectedOrigin) {
+      return jsonError(403, "origin mismatch");
+    }
+  }
+  return null;
+}
+
 export function requireAdmin(user: UserRow): Response | null {
   if (user.role !== "admin") return jsonError(403, "admin only");
   return null;

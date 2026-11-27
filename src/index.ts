@@ -4,11 +4,29 @@ import {
   CALENDAR_SCOPES,
   exchangeCode,
   fetchUserInfo,
+  generatePkce,
   IDENTITY_SCOPES,
   newOAuthState,
+  revokeGoogleToken,
+  verifyGoogleIdToken,
 } from "./auth/google";
-import { createSession, deleteSession } from "./db/sessions";
 import {
+  buildOAuthStateCookieHeader,
+  clearOAuthStateCookieHeaders,
+  OAUTH_CAL_STATE_COOKIE,
+  OAUTH_LOGIN_STATE_COOKIE,
+  OAUTH_STATE_MAX_AGE_SECONDS,
+  readOAuthStateCookie,
+  sealOAuthState,
+  verifyOAuthState,
+} from "./auth/oauth-state";
+import {
+  createSession,
+  deleteSession,
+  deleteSessionsForUser,
+} from "./db/sessions";
+import {
+  countAdmins,
   getUserByEmail,
   getUserById,
   listUsers,
@@ -20,6 +38,7 @@ import {
 import {
   deleteRefreshToken,
   loadRefreshToken,
+  markTokenRevoked,
   storeRefreshToken,
 } from "./db/tokens";
 import {
@@ -28,8 +47,13 @@ import {
 } from "./db/calendars";
 import { listGroupMemberIds } from "./db/groups";
 import { handleAdmin } from "./admin/routes";
+import { syncAccessFromDb } from "./access/sync";
 import { findSharedSlots } from "./freebusy/intersect";
-import { queryFreeBusy, refreshAccessToken } from "./calendar/freebusy-client";
+import {
+  GoogleTokenRevokedError,
+  queryFreeBusy,
+  refreshAccessToken,
+} from "./calendar/freebusy-client";
 import {
   defaultCalendarSelection,
   listCalendars,
@@ -49,7 +73,32 @@ import {
   SESSION_COOKIE,
   sessionCookieHeader,
 } from "./middleware/session";
-import { homePage, htmlPage } from "./ui/pages";
+import { escapeHtml, homePage, htmlPage } from "./ui/pages";
+
+function oauthSigningSecret(env: Env): string {
+  return env.SESSION_SECRET || env.GOOGLE_CLIENT_SECRET;
+}
+
+function isSecureOrigin(url: URL, env: Env): boolean {
+  return url.protocol === "https:" || env.ENVIRONMENT !== "local";
+}
+
+function withClearedOAuthCookie(
+  res: Response,
+  baseName: string,
+  secure: boolean,
+  status?: number,
+): Response {
+  const headers = new Headers(res.headers);
+  for (const cookie of clearOAuthStateCookieHeaders(baseName, secure)) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(res.body, {
+    status: status ?? res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -101,64 +150,137 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   if (path === "/auth/google/start" && request.method === "GET") {
     const state = newOAuthState();
+    const nonce = newOAuthState();
+    const pkce = await generatePkce();
     const redirectUri = `${env.APP_BASE_URL}/auth/google/callback`;
     const loc = buildGoogleAuthUrl({
       clientId: env.GOOGLE_CLIENT_ID,
       redirectUri,
       scopes: IDENTITY_SCOPES,
       state,
-      nonce: newOAuthState(),
+      nonce,
+      codeChallenge: pkce.codeChallenge,
+      codeChallengeMethod: pkce.codeChallengeMethod,
     });
-    const res = Response.redirect(loc, 302);
-    res.headers.append(
-      "set-cookie",
-      `ots_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
+    const sealed = await sealOAuthState(
+      {
+        state,
+        codeVerifier: pkce.codeVerifier,
+        nonce,
+        exp: Date.now() + OAUTH_STATE_MAX_AGE_SECONDS * 1000,
+      },
+      oauthSigningSecret(env),
     );
-    return res;
+    const secure = isSecureOrigin(url, env);
+    const headers = new Headers({ location: loc });
+    headers.append(
+      "set-cookie",
+      buildOAuthStateCookieHeader(OAUTH_LOGIN_STATE_COOKIE, sealed, secure),
+    );
+    return new Response(null, { status: 302, headers });
   }
 
   if (path === "/auth/google/callback" && request.method === "GET") {
+    const secure = isSecureOrigin(url, env);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const cookies = parseCookies(request.headers.get("cookie"));
-    if (!code || !state || state !== cookies["ots_oauth_state"]) {
-      return htmlPage(
-        "Sign-in failed",
-        `<p class="error">Invalid OAuth state.</p>`,
+    const verifiedState = await verifyOAuthState(
+      readOAuthStateCookie(cookies, OAUTH_LOGIN_STATE_COOKIE, secure),
+      state,
+      oauthSigningSecret(env),
+    );
+    if (!code || !verifiedState) {
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Sign-in failed",
+          `<p class="error">Invalid or expired OAuth state.</p>`,
+        ),
+        OAUTH_LOGIN_STATE_COOKIE,
+        secure,
+        400,
       );
     }
     const redirectUri = `${env.APP_BASE_URL}/auth/google/callback`;
-    const tokens = await exchangeCode(env, code, redirectUri);
+    const tokens = await exchangeCode(
+      env,
+      code,
+      redirectUri,
+      fetch,
+      verifiedState.codeVerifier,
+    );
+    if (!tokens.id_token) {
+      return withClearedOAuthCookie(
+        htmlPage("Sign-in failed", `<p class="error">Missing OIDC identity token.</p>`),
+        OAUTH_LOGIN_STATE_COOKIE,
+        secure,
+        400,
+      );
+    }
+    const idClaims = await verifyGoogleIdToken(tokens.id_token, {
+      clientId: env.GOOGLE_CLIENT_ID,
+      expectedNonce: verifiedState.nonce,
+    });
     const info = await fetchUserInfo(tokens.access_token);
-    const email = normalizeEmail(info.email);
+    if (
+      info.sub !== idClaims.sub ||
+      normalizeEmail(info.email) !== normalizeEmail(idClaims.email)
+    ) {
+      return withClearedOAuthCookie(
+        htmlPage("Sign-in failed", `<p class="error">Identity mismatch.</p>`),
+        OAUTH_LOGIN_STATE_COOKIE,
+        secure,
+        403,
+      );
+    }
+    const email = normalizeEmail(idClaims.email);
     const user = await getUserByEmail(env.DB, email);
     if (!user) {
       await writeAudit(env, {
         action: "sign_in_denied",
         targetEmail: email,
       });
-      return htmlPage(
-        "Not invited",
-        `<h1>Not invited</h1><p>Ask an admin to invite <strong>${email}</strong>.</p>`,
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Not invited",
+          `<h1>Not invited</h1><p>Ask an admin to invite <strong>${escapeHtml(email)}</strong>.</p>`,
+        ),
+        OAUTH_LOGIN_STATE_COOKIE,
+        secure,
+        403,
       );
     }
-    await markLogin(env.DB, user.id, info.sub, info.name ?? null);
+    if (user.google_sub && user.google_sub !== idClaims.sub) {
+      await writeAudit(env, {
+        actorUserId: user.id,
+        action: "sign_in_sub_mismatch",
+        targetEmail: email,
+      });
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Sign-in denied",
+          `<p class="error">This email is already linked to a different Google account. Ask an admin for help.</p>`,
+        ),
+        OAUTH_LOGIN_STATE_COOKIE,
+        secure,
+        403,
+      );
+    }
+    await markLogin(env.DB, user.id, idClaims.sub, info.name ?? idClaims.name ?? null);
     const session = await createSession(env.DB, user.id);
     await writeAudit(env, {
       actorUserId: user.id,
       action: "sign_in",
       targetEmail: email,
     });
-    const secure = url.protocol === "https:";
     const headers = new Headers({ location: "/" });
     headers.append(
       "set-cookie",
       sessionCookieHeader(session.id, session.expires_at, secure),
     );
-    headers.append(
-      "set-cookie",
-      "ots_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-    );
+    for (const c of clearOAuthStateCookieHeaders(OAUTH_LOGIN_STATE_COOKIE, secure)) {
+      headers.append("set-cookie", c);
+    }
     return new Response(null, { status: 302, headers });
   }
 
@@ -167,7 +289,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (cookies[SESSION_COOKIE]) {
       await deleteSession(env.DB, cookies[SESSION_COOKIE]);
     }
-    const secure = url.protocol === "https:";
+    const secure = isSecureOrigin(url, env);
     const headers = new Headers({ location: "/" });
     headers.append("set-cookie", clearSessionCookie(secure));
     return new Response(null, { status: 302, headers });
@@ -185,41 +307,129 @@ async function handle(request: Request, env: Env): Promise<Response> {
       );
     }
     const state = newOAuthState();
+    const nonce = newOAuthState();
+    const pkce = await generatePkce();
     const redirectUri = `${env.APP_BASE_URL}/auth/google/calendar/callback`;
     const loc = buildGoogleAuthUrl({
       clientId: env.GOOGLE_CLIENT_ID,
       redirectUri,
-      scopes: CALENDAR_SCOPES,
+      scopes: ["openid", "email", ...CALENDAR_SCOPES],
       state,
+      nonce,
       accessType: "offline",
       prompt: "consent",
+      codeChallenge: pkce.codeChallenge,
+      codeChallengeMethod: pkce.codeChallengeMethod,
+      loginHint: authed.user.email,
     });
-    const res = Response.redirect(loc, 302);
-    res.headers.append(
-      "set-cookie",
-      `ots_cal_state=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`,
+    const sealed = await sealOAuthState(
+      {
+        state,
+        codeVerifier: pkce.codeVerifier,
+        nonce,
+        userId: authed.user.id,
+        sessionId: authed.sessionId,
+        exp: Date.now() + OAUTH_STATE_MAX_AGE_SECONDS * 1000,
+      },
+      oauthSigningSecret(env),
     );
-    return res;
+    const secure = isSecureOrigin(url, env);
+    const headers = new Headers({ location: loc });
+    headers.append(
+      "set-cookie",
+      buildOAuthStateCookieHeader(OAUTH_CAL_STATE_COOKIE, sealed, secure),
+    );
+    return new Response(null, { status: 302, headers });
   }
 
   if (path === "/auth/google/calendar/callback" && request.method === "GET") {
+    const secure = isSecureOrigin(url, env);
     const authed = await requireUser(request, env);
     if (authed instanceof Response) return authed;
+    if (authed.user.role === "guest") {
+      return withClearedOAuthCookie(
+        jsonError(403, "guests do not connect calendars"),
+        OAUTH_CAL_STATE_COOKIE,
+        secure,
+      );
+    }
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const cookies = parseCookies(request.headers.get("cookie"));
-    if (!code || !state || state !== cookies["ots_cal_state"]) {
-      return htmlPage(
-        "Calendar connect failed",
-        `<p class="error">Invalid state.</p>`,
+    const verifiedState = await verifyOAuthState(
+      readOAuthStateCookie(cookies, OAUTH_CAL_STATE_COOKIE, secure),
+      state,
+      oauthSigningSecret(env),
+      {
+        expectedUserId: authed.user.id,
+        expectedSessionId: authed.sessionId,
+      },
+    );
+    if (!code || !verifiedState) {
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Calendar connect failed",
+          `<p class="error">Invalid or expired state.</p>`,
+        ),
+        OAUTH_CAL_STATE_COOKIE,
+        secure,
+        400,
       );
     }
     const redirectUri = `${env.APP_BASE_URL}/auth/google/calendar/callback`;
-    const tokens = await exchangeCode(env, code, redirectUri);
+    const tokens = await exchangeCode(
+      env,
+      code,
+      redirectUri,
+      fetch,
+      verifiedState.codeVerifier,
+    );
+    if (!tokens.id_token) {
+      if (tokens.refresh_token) await revokeGoogleToken(tokens.refresh_token);
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Calendar connect failed",
+          `<p class="error">Could not verify the Google account for this calendar.</p>`,
+        ),
+        OAUTH_CAL_STATE_COOKIE,
+        secure,
+        400,
+      );
+    }
+    const idClaims = await verifyGoogleIdToken(tokens.id_token, {
+      clientId: env.GOOGLE_CLIENT_ID,
+      expectedNonce: verifiedState.nonce,
+    });
+    const accountEmailMatches =
+      normalizeEmail(idClaims.email) === authed.user.email_normalized;
+    const accountSubMatches =
+      !authed.user.google_sub || idClaims.sub === authed.user.google_sub;
+    if (!accountEmailMatches || !accountSubMatches) {
+      await revokeGoogleToken(tokens.refresh_token ?? tokens.access_token);
+      await writeAudit(env, {
+        actorUserId: authed.user.id,
+        action: "calendar_connect_account_mismatch",
+        targetEmail: authed.user.email,
+      });
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Wrong Google account",
+          `<h1>Wrong Google account</h1><p class="error">Please connect Google Calendar using <strong>${escapeHtml(authed.user.email)}</strong>, the same Google account you signed in with.</p>`,
+        ),
+        OAUTH_CAL_STATE_COOKIE,
+        secure,
+        403,
+      );
+    }
     if (!tokens.refresh_token) {
-      return htmlPage(
-        "Calendar connect failed",
-        `<p class="error">No refresh token returned. Revoke app access in Google Account and retry.</p>`,
+      return withClearedOAuthCookie(
+        htmlPage(
+          "Calendar connect failed",
+          `<p class="error">No refresh token returned. Revoke app access in Google Account and retry.</p>`,
+        ),
+        OAUTH_CAL_STATE_COOKIE,
+        secure,
+        400,
       );
     }
     await storeRefreshToken(
@@ -245,10 +455,9 @@ async function handle(request: Request, env: Env): Promise<Response> {
       targetEmail: authed.user.email,
     });
     const headers = new Headers({ location: "/calendars" });
-    headers.append(
-      "set-cookie",
-      "ots_cal_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-    );
+    for (const c of clearOAuthStateCookieHeaders(OAUTH_CAL_STATE_COOKIE, secure)) {
+      headers.append("set-cookie", c);
+    }
     return new Response(null, { status: 302, headers });
   }
 
@@ -267,11 +476,20 @@ async function handle(request: Request, env: Env): Promise<Response> {
       env.TOKEN_ENCRYPTION_KEY,
     );
     if (!refresh) return jsonError(400, "missing token");
-    const access = await refreshAccessToken(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      refresh,
-    );
+    let access: string;
+    try {
+      access = await refreshAccessToken(
+        env.GOOGLE_CLIENT_ID,
+        env.GOOGLE_CLIENT_SECRET,
+        refresh,
+      );
+    } catch (err) {
+      if (err instanceof GoogleTokenRevokedError) {
+        await markTokenRevoked(env.DB, authed.user.id);
+        return jsonError(400, "calendar access expired or revoked; reconnect Google Calendar");
+      }
+      throw err;
+    }
     const available = await listCalendars(access);
     const selected = await getSelectedCalendars(env.DB, authed.user.id);
     return jsonOk({
@@ -337,15 +555,33 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (authed instanceof Response) return authed;
     const csrfErr = requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
+    if (authed.user.role === "admin" && (await countAdmins(env.DB)) <= 1) {
+      return jsonError(400, "cannot delete the last admin");
+    }
+    let refresh: string | null = null;
+    try {
+      refresh = await loadRefreshToken(
+        env.DB,
+        authed.user.id,
+        env.TOKEN_ENCRYPTION_KEY,
+      );
+    } catch {
+      // Best-effort decrypt for remote revocation; always continue local wipe.
+    }
+    if (refresh) {
+      await revokeGoogleToken(refresh);
+    }
     await deleteRefreshToken(env.DB, authed.user.id);
     await deleteSession(env.DB, authed.sessionId);
+    await deleteSessionsForUser(env.DB, authed.user.id);
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "calendar_disconnect",
       targetEmail: authed.user.email,
     });
     await removeUser(env.DB, authed.user.id);
-    const secure = url.protocol === "https:";
+    await syncAccessFromDb(env);
+    const secure = isSecureOrigin(url, env);
     const headers = new Headers({ location: "/" });
     headers.append("set-cookie", clearSessionCookie(secure));
     return new Response(null, { status: 302, headers });
@@ -443,11 +679,20 @@ async function handle(request: Request, env: Env): Promise<Response> {
         env.TOKEN_ENCRYPTION_KEY,
       );
       if (!refresh) return jsonError(400, `missing token: ${u.email}`);
-      const access = await refreshAccessToken(
-        env.GOOGLE_CLIENT_ID,
-        env.GOOGLE_CLIENT_SECRET,
-        refresh,
-      );
+      let access: string;
+      try {
+        access = await refreshAccessToken(
+          env.GOOGLE_CLIENT_ID,
+          env.GOOGLE_CLIENT_SECRET,
+          refresh,
+        );
+      } catch (err) {
+        if (err instanceof GoogleTokenRevokedError) {
+          await markTokenRevoked(env.DB, u.id);
+          return jsonError(400, `calendar access revoked or expired for ${u.email}`);
+        }
+        throw err;
+      }
       const cals = await getSelectedCalendars(env.DB, u.id);
       const ids = cals.map((c) => c.calendar_id);
       if (!ids.length) ids.push("primary");

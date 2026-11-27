@@ -13,6 +13,7 @@ export async function listCalendars(
 ): Promise<CalendarListEntry[]> {
   const res = await fetchImpl(`${CALENDAR_LIST_URL}?minAccessRole=reader`, {
     headers: { authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`calendarList failed: ${res.status}`);
   const data = (await res.json()) as {

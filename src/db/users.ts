@@ -29,6 +29,13 @@ export async function listUsers(db: D1Database): Promise<UserRow[]> {
   return res.results ?? [];
 }
 
+export async function countAdmins(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'")
+    .first<{ c: number }>();
+  return Number(row?.c ?? 0);
+}
+
 export async function inviteUser(
   db: D1Database,
   email: string,

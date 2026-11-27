@@ -1,6 +1,16 @@
 import type { BusyInterval } from "../types";
 
 const FREEBUSY_URL = "https://www.googleapis.com/calendar/v3/freeBusy";
+const FETCH_TIMEOUT_MS = 8000;
+
+export class GoogleTokenRevokedError extends Error {
+  status: number;
+  constructor(status: number) {
+    super(`google token revoked: ${status}`);
+    this.name = "GoogleTokenRevokedError";
+    this.status = status;
+  }
+}
 
 export interface FreeBusyQuery {
   timeMin: string; // RFC3339
@@ -27,10 +37,14 @@ export async function queryFreeBusy(
       timeMax: q.timeMax,
       items: q.calendarIds.map((id) => ({ id })),
     }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`freeBusy failed: ${res.status}`);
   const data = (await res.json()) as {
-    calendars?: Record<string, { busy?: { start: string; end: string }[]; errors?: unknown[] }>;
+    calendars?: Record<
+      string,
+      { busy?: { start: string; end: string }[]; errors?: unknown[] }
+    >;
   };
   const busy: BusyInterval[] = [];
   for (const cal of Object.values(data.calendars ?? {})) {
@@ -57,8 +71,17 @@ export async function refreshAccessToken(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 400 || res.status === 401) {
+      const text = await res.text().catch(() => "");
+      if (res.status === 401 || text.includes("invalid_grant")) {
+        throw new GoogleTokenRevokedError(res.status);
+      }
+    }
+    throw new Error(`refresh failed: ${res.status}`);
+  }
   const data = (await res.json()) as { access_token: string };
   return data.access_token;
 }

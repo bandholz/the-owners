@@ -8,9 +8,13 @@ import { readFileSync } from "node:fs";
 
 const patterns = [
   { name: "Google client secret style", re: /GOCSPX-[A-Za-z0-9_-]{20,}/g },
-  { name: "Private key block", re: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/g },
-  { name: "CF API token prefix", re: /\b(CFAuth|cloudflare).*['\"][A-Za-z0-9_-]{40,}['\"]/gi },
-  { name: "GitHub PAT", re: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g },
+  { name: "Google API key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  { name: "Google OAuth refresh token", re: /\b1\/\/0[0-9A-Za-z_-]{20,}\b/g },
+  { name: "Private key block", re: /-----BEGIN (RSA |EC |OPENSSH |PRIVATE )?KEY-----/g },
+  { name: "CF API token prefix", re: /\b(CFAuth|cloudflare|CF_API_TOKEN).*['\"=][A-Za-z0-9_-]{32,}['\"]?/gi },
+  { name: "Hex encryption key assignment", re: /TOKEN_ENCRYPTION_KEY\s*[:=]\s*['\"]?[0-9a-fA-F]{64}['\"]?/g },
+  { name: "JWT literal", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g },
+  { name: "GitHub PAT", re: /\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g },
   { name: "AWS access key", re: /\bAKIA[0-9A-Z]{16}\b/g },
 ];
 

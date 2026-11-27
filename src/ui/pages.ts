@@ -42,6 +42,7 @@ export function homePage(opts: {
   role?: string;
   calendarOk?: boolean;
   isGuest?: boolean;
+  csrf?: string;
 }): Response {
   if (!opts.signedIn) {
     return htmlPage(
@@ -59,6 +60,11 @@ export function homePage(opts: {
       ? `<p><a class="button" href="/app">Find a time</a> · <a href="/calendars">Calendars</a></p>`
       : `<p><a class="button" href="/auth/google/calendar/start">Connect Google Calendar</a></p>`;
 
+  const signOutForm = `<form method="post" action="/auth/logout" style="display:inline">
+       <input type="hidden" name="csrf" value="${escapeHtml(opts.csrf ?? "")}" />
+       <button type="submit">Sign out</button>
+     </form>`;
+
   return htmlPage(
     opts.appName,
     `<h1>${escapeHtml(opts.appName)}</h1>
@@ -71,7 +77,7 @@ export function homePage(opts: {
            : "not connected"
      }</p>
      ${guestNote}
-     <p><a href="/auth/logout">Sign out</a> · <a href="/me/delete">Disconnect &amp; delete my data</a></p>
+     <p>${signOutForm} · <a href="/me/delete">Disconnect &amp; delete my data</a></p>
      ${opts.role === "admin" ? `<p><a href="/admin">Admin</a></p>` : ""}`,
   );
 }

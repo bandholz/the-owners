@@ -1,4 +1,8 @@
-# Cloudflare Access config (docs only — do not create yet)
+# Cloudflare Access config (deprecated as perimeter gate — app auth is sole gate)
+
+> **Update:** Cloudflare Access is no longer required in front of `owners.sovrnty.com`. Application-level Google OAuth + D1 invite allowlist + fail-closed session middleware is the sole authentication gate.
+>
+> **Important cutover order for Eric:** Do **not** remove the Cloudflare Access application in the Cloudflare dashboard until all security hardening PRs (fail-closed app auth gate, session hashing/rotation, OAuth hardening, and rate limiting) are merged and deployed. Once deployed and verified, disable `CF_ACCESS_SYNC_ENABLED` (`false`) and remove the Access application in the Cloudflare Zero Trust dashboard.
 
 Access is **not enabled** on account `d9eebda3928171a0baf30eaffb2c03be` as of Nov 5, 2026 (America/Chicago). Eric must Enable Zero Trust/Access first.
 

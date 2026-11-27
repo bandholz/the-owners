@@ -27,6 +27,7 @@ import {
   jsonOk,
   requireAdmin,
   requireCsrf,
+  requireSameOrigin,
   requireUser,
 } from "../middleware/session";
 
@@ -62,6 +63,8 @@ export async function handleAdmin(
   if (path.startsWith("/api/groups")) {
     const adminErr = requireAdmin(authed.user);
     if (adminErr) return adminErr;
+    const originErr = requireSameOrigin(request, env);
+    if (originErr) return originErr;
     const csrfErr = requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
 
@@ -143,6 +146,8 @@ export async function handleAdmin(
   const adminErr = requireAdmin(authed.user);
   if (adminErr) return adminErr;
   if (request.method !== "GET" && request.method !== "HEAD") {
+    const originErr = requireSameOrigin(request, env);
+    if (originErr) return originErr;
     const csrfErr = requireCsrf(request, authed.csrfSecret);
     if (csrfErr) return csrfErr;
   }

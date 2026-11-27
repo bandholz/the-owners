@@ -1,5 +1,7 @@
 import type { Env, Role } from "../types";
 import {
+  countAdmins,
+  getUserById,
   inviteUser,
   listUsers,
   normalizeEmail,
@@ -7,6 +9,9 @@ import {
   setRole,
   writeAudit,
 } from "../db/users";
+import { deleteRefreshToken, loadRefreshToken } from "../db/tokens";
+import { deleteSessionsForUser } from "../db/sessions";
+import { revokeGoogleToken } from "../auth/google";
 import { syncAccessFromDb, isAccessSyncConfigured } from "../access/sync";
 import {
   diffGoogleTestUsers,
@@ -193,12 +198,31 @@ export async function handleAdmin(
     if (body.userId === authed.user.id) {
       return jsonError(400, "cannot remove yourself");
     }
-    await removeUser(env.DB, body.userId);
+    const target = await getUserById(env.DB, body.userId);
+    if (!target) return jsonError(404, "user not found");
+    if (target.role === "admin" && (await countAdmins(env.DB)) <= 1) {
+      return jsonError(400, "cannot remove the last admin");
+    }
+    let refresh: string | null = null;
+    try {
+      refresh = await loadRefreshToken(
+        env.DB,
+        target.id,
+        env.TOKEN_ENCRYPTION_KEY,
+      );
+    } catch {
+      // Best-effort decrypt for Google revocation; always proceed with removal.
+    }
+    if (refresh) {
+      await revokeGoogleToken(refresh);
+    }
+    await deleteSessionsForUser(env.DB, target.id);
+    await removeUser(env.DB, target.id);
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "remove",
-      targetEmail: body.email ?? null,
-      meta: { userId: body.userId },
+      targetEmail: target.email,
+      meta: { userId: target.id },
     });
     const accessSync = await afterRosterChange(env);
     return jsonOk({ ok: true, accessSync });
@@ -209,11 +233,43 @@ export async function handleAdmin(
     if (!body.userId || !body.role || !ROLES.includes(body.role)) {
       return jsonError(400, "userId and role required");
     }
-    await setRole(env.DB, body.userId, body.role);
+    const target = await getUserById(env.DB, body.userId);
+    if (!target) return jsonError(404, "user not found");
+    if (target.id === authed.user.id && body.role !== "admin") {
+      return jsonError(400, "cannot demote yourself");
+    }
+    if (
+      target.role === "admin" &&
+      body.role !== "admin" &&
+      (await countAdmins(env.DB)) <= 1
+    ) {
+      return jsonError(400, "cannot demote the last admin");
+    }
+    if (body.role === "guest" && target.role !== "guest") {
+      let refresh: string | null = null;
+      try {
+        refresh = await loadRefreshToken(
+          env.DB,
+          target.id,
+          env.TOKEN_ENCRYPTION_KEY,
+        );
+      } catch {
+        // Best-effort revoke before wiping stored token.
+      }
+      if (refresh) {
+        await revokeGoogleToken(refresh);
+      }
+      await deleteRefreshToken(env.DB, target.id);
+    }
+    await setRole(env.DB, target.id, body.role);
+    if (target.role !== body.role) {
+      await deleteSessionsForUser(env.DB, target.id);
+    }
     await writeAudit(env, {
       actorUserId: authed.user.id,
       action: "role_change",
-      meta: { userId: body.userId, role: body.role },
+      targetEmail: target.email,
+      meta: { userId: target.id, fromRole: target.role, role: body.role },
     });
     return jsonOk({ ok: true });
   }

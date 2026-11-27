@@ -67,6 +67,19 @@ export async function loadRefreshToken(
   return decryptSecret(blob, hexKey);
 }
 
+export async function markTokenRevoked(
+  db: D1Database,
+  userId: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `UPDATE users SET token_status = 'revoked', updated_at = ? WHERE id = ?`,
+    )
+    .bind(now, userId)
+    .run();
+}
+
 export async function deleteRefreshToken(
   db: D1Database,
   userId: string,
